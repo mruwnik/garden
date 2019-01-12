@@ -61,7 +61,10 @@
 
 
 (defn garden-layers []
-  (side-bar "Patches" (description-list (state/get :layers) :on-click handlers/select-layer)))
+  (side-bar "Patches"
+            [:div
+             [:button {:type "button" :on-click handlers/add-layer} "New patch"]
+             (description-list (state/get :layers) :on-click handlers/select-layer)]))
 
 (defn edit-layer []
   (when (state/current-layer)
@@ -70,8 +73,8 @@
      [:form {:id "edit-layer"}
       [text-input "Name" "layer-name" (state/current-accessor :name)]
       [text-input "Description" "layer-desc" (state/current-accessor :desc)]
-      ]])
-                                        )
+      [text-input "Colour" "layer-colour" (state/current-accessor :colour)]
+      ]]))
 
 (defn navigation []
   (side-bar "Navigation"

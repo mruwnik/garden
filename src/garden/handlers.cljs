@@ -45,6 +45,16 @@
   (render @state/app-state))
 
 
+(defn random-colour [] (apply str "#" (repeatedly 6 #(rand-nth "01234567890ABCDEF"))))
+
+(defn add-layer [event]
+  (let [id (->> (state/get :layers) (map :id) (apply max) (+ 1))
+        layer {:id id :name (str "New patch (" id ")") :colour (random-colour)}
+        layers (conj (state/get :layers) layer)]
+    (state/update [:layers] layers)
+    (state/select-layer id)))
+
+
 (defn update-value [cast accessor event]
   (state/update accessor (cast (event-field event "value"))))
 
