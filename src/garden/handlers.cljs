@@ -7,7 +7,7 @@
   "Handle a point being selected on the canvas."
   [e]
   (state/update
-   [:layers @state/current-layer :points]
+   (state/current-accessor :points)
    (conj (state/current-line) (round-pos e (state/get :canvas :pixels-per-meter))))
   (render @state/app-state))
 

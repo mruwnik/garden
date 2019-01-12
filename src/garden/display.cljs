@@ -42,14 +42,16 @@
             :value (or  (state/get-in accessor) "")
             :on-change (partial handlers/update-value accessor)}]])
 
-(defn garden-layers [] (side-bar "Patches" (description-list (state/get :layers) :on-click handlers/select-layer)))
+(defn garden-layers []
+  (side-bar "Patches" (description-list (state/get :layers) :on-click handlers/select-layer)))
+
 (defn edit-layer []
-  (when-let [layer @state/current-layer]
+  (when @state/current-layer
     [:div {:class "side-bar left"}
      [:h4 "Edit patch"]
      [:form {:id "edit-layer"}
-      [text-input "Name" "layer-name" [:layers layer :name]]
-      [text-input "Description" "layer-desc" [:layers layer :desc]]
+      [text-input "Name" "layer-name" (state/current-accessor :name)]
+      [text-input "Description" "layer-desc" (state/current-accessor :desc)]
       ]])
                                         )
 
