@@ -1,6 +1,7 @@
 (ns garden.display
   (:require [garden.state :as state]
-            [garden.handlers :as handlers]))
+            [garden.handlers :as handlers]
+            [clojure.string :refer (join split)]))
 
 (defn canvas []
   (let []
@@ -18,19 +19,26 @@
     {:component-did-mount #(-> % (aget "refs") (aget "garden-canvas") (.getContext "2d") state/set-context)}))
 
 
-(defn description-item [item & {:keys [on-click]}]
-   [:p {:on-click on-click :class "item-handler" :id (:id item)}
+(defn description-item [item & {:keys [on-click classes]}]
+  [:p {:id (:id item)
+       :class (join " " classes)
+       :on-click on-click}
     [:dt (:name item)] [:dd (:desc item)]])
+
+(defn layer-classes [layer]
+  (concat
+   ["item-handler"]
+   (if (= (state/get :current :id) (:id layer)) ["selected"] [])))
 
 (defn description-list [items & {:keys [on-click]}]
   (->> items
-       (map #(description-item %1 :on-click on-click))
+       (map #(description-item %1 :on-click on-click :classes (layer-classes %1)))
        (concat [:dl])
        (into [])))
 
 
 (defn side-bar [summary contents & {:keys [start-open] :or {start-open true}}]
-  [:div {:class "side-bar left"}
+  [:div {:class "options-container"}
    [:details {:open start-open}
     [:summary summary] contents]])
 
@@ -47,7 +55,7 @@
 
 (defn edit-layer []
   (when (state/current-layer)
-    [:div {:class "side-bar left"}
+    [:div {:class "options-container"}
      [:h4 "Edit patch"]
      [:form {:id "edit-layer"}
       [text-input "Name" "layer-name" (state/current-accessor :name)]
@@ -57,6 +65,8 @@
 
 (defn garden-app []
   [:div
-   [edit-layer]
+   [:div {:class "side-bar left"}
+    [edit-layer]
+    [garden-layers]]
    [grid-canvas {:id "garden-canvas" :width (state/get :canvas :width) :height (state/get :canvas :height)}]
-   [garden-layers]])
+   ])

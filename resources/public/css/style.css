@@ -10,9 +10,21 @@
 
 .side-bar {
     width: 15%;
+}
+
+.options-container {
     border-style: solid;
+}
+
+.item-handler {
+    margin: 4px;
+    padding: 10px;
 }
 
 .item-handler * {
     pointer-events: none;
+}
+
+.item-handler.selected {
+    background-color: lightblue;
 }
