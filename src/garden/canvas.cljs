@@ -7,10 +7,10 @@
   The idea is to limit the amount of points on the canvas, where clicking on a pixel
   will result in the closest point on the grid being selected.
   "
-  [e grid-size]
+  [e grid-size x-offset y-offset]
   (let [bounding-box (-> e (aget "target") (.getBoundingClientRect))
-        x (- (aget e "clientX") (aget bounding-box "left"))
-        y (- (aget e "clientY") (aget bounding-box "top"))
+        x (- (aget e "clientX") (aget bounding-box "left") x-offset)
+        y (- (aget e "clientY") (aget bounding-box "top") y-offset)
         floor-x (- x (mod x grid-size))
         floor-y (- y (mod y grid-size))
         cutoff (/ grid-size 2)]
@@ -46,33 +46,33 @@
 
 (defn draw-dotted-line
   "Draw lines joining all the given `points`, as well as marking the `points` on the resulting line."
-  [ctx points]
+  [ctx points x-offset y-offset]
   ; Draw the line
   (when (seq points)
     (let [[start-x start-y] (first points)]
-      (.moveTo ctx start-x start-y)
+      (.moveTo ctx (+ x-offset start-x) (+ y-offset start-y))
       (.beginPath ctx)
       (doseq [[x y] points]
-        (.lineTo ctx x y))
+        (.lineTo ctx (+ x-offset x) (+ y-offset y)))
 
       (set! (.-lineWidth ctx) 1)
       (.stroke ctx))
 
     ; Draw points for each of the points on the line
     (doseq [[x y] points]
-      (draw-circle ctx x y 2))))
+      (draw-circle ctx (+ x-offset x) (+ y-offset y) 2))))
 
 
 (defn draw-layer
   "Draw a polygon from all the points in `layer`."
-  [ctx layer]
+  [ctx layer x-offset y-offset]
   (when (seq layer)
     (let [points (:points layer)
           [start-x start-y] (first points)]
-      (.moveTo ctx start-x start-y)
+      (.moveTo ctx (+ x-offset start-x) (+ y-offset start-y))
       (.beginPath ctx)
       (doseq [[x y] points]
-        (.lineTo ctx x y))
+        (.lineTo ctx (+ x-offset x) (+ y-offset y)))
 
       (set! (.-fillStyle ctx) (:colour layer))
       (.fill ctx))))
@@ -80,10 +80,12 @@
 
 (defn draw-layers [app-state]
   (let [ctx (-> app-state :canvas :ctx)
+        x-offset (-> app-state :canvas :x-offset)
+        y-offset (-> app-state :canvas :y-offset)
         layers (:layers app-state)]
     (set! (.-globalAlpha ctx) (if (-> app-state :current)  0.4 1))
     (doseq [layer layers]
-        (draw-layer ctx layer))
+        (draw-layer ctx layer x-offset y-offset))
     (set! (.-globalAlpha ctx) 1)))
 
 
@@ -105,6 +107,5 @@
     (draw-layers app-state)
 
    ; draw any other things
-    (println (:canvas app-state))
-    (draw-dotted-line ctx (state/current-line))
+    (draw-dotted-line ctx (state/current-line) (:x-offset canvas) (:y-offset canvas))
   ))

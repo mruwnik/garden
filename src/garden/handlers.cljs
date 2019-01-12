@@ -8,9 +8,13 @@
   [e]
   (state/update
    (state/current-accessor :points)
-   (conj (state/current-line) (round-pos e (state/get :canvas :pixels-per-meter))))
+   (conj (state/current-line)
+         (round-pos e (state/get :canvas :pixels-per-meter) (state/get :canvas :x-offset) (state/get :canvas :y-offset))))
   (render @state/app-state))
 
+
+(defn offset-point [[x y]]
+  [(+ x (state/get :canvas :x-offset)) (+ y (state/get :canvas :y-offset))])
 
 (defn line-to-point
   "Draw a line from the last clicked point to the current position of the mouse,"
@@ -19,7 +23,7 @@
     (let [canvas (state/get :canvas)
           ctx (:ctx canvas)]
       (render @state/app-state)
-      (add-line ctx (last (state/current-line)) (round-pos e (:pixels-per-meter canvas)))
+      (add-line ctx (-> (state/current-line) last offset-point) (round-pos e (:pixels-per-meter canvas) 0 0))
 
       (set! (.-lineWidth ctx) 1)
       (.stroke ctx))))
@@ -27,11 +31,7 @@
 
 (defn mouse-out
   "Handle the mouse leaving the canvas."
-  [e]
-  (let [canvas (state/get :canvas)]
-    (render @state/app-state)
-    (draw-layer (:ctx canvas) (state/current-layer))))
-
+  [e])
 
 
 (defn event-field
@@ -47,3 +47,11 @@
 
 (defn update-value [cast accessor event]
   (state/update accessor (cast (event-field event "value"))))
+
+(defn move [dir]
+  (condp = dir
+    :left (state/update [:canvas :x-offset] (- (state/get :canvas :x-offset) 10))
+    :right (state/update [:canvas :x-offset] (+ (state/get :canvas :x-offset) 10))
+    :up (state/update [:canvas :y-offset] (- (state/get :canvas :y-offset) 10))
+    :down (state/update [:canvas :y-offset] (+ (state/get :canvas :y-offset) 10)))
+  (render @state/app-state))

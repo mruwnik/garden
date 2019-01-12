@@ -73,10 +73,19 @@
       ]])
                                         )
 
+(defn navigation []
+  (side-bar "Navigation"
+           [:form {:name "navigation"}
+            [:button {:type "button" :on-click #(handlers/move :left)} "<"]
+            [:button {:type "button" :on-click #(handlers/move :up)} "^"]
+            [:button {:type "button" :on-click #(handlers/move :down)} "v"]
+            [:button {:type "button" :on-click #(handlers/move :right)} ">"]]))
+
 (defn garden-app []
   [:div
    [:div {:class "side-bar left"}
     [garden-settings]
+    [navigation]
     [edit-layer]
     [garden-layers]]
    [grid-canvas {:id "garden-canvas" :width (state/get :canvas :width) :height (state/get :canvas :height)}]

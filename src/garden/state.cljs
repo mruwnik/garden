@@ -3,7 +3,7 @@
   (:require [reagent.core :as r]))
 
 (defonce app-state
-  (r/atom {:canvas {:width 1200 :height 800 :pixels-per-meter 10 :ctx nil}
+  (r/atom {:canvas {:width 1200 :height 800 :pixels-per-meter 10 :ctx nil :x-offset 0 :y-offset 0}
            :garden {:name "Bla bla bla" :lat 12.21 :lon 43.2}
            :layers [{:id 1 :name "layer 1" :desc "asdadas asd asd asdasd asd asd asd asd " :points [] :colour "red"}
                        {:id 2 :name "layer 2" :desc "ggrere reg er gre  " :points [] :colour "green"}
