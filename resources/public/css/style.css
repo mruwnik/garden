@@ -1,0 +1,18 @@
+/* some style */
+
+.left {
+    float: left;
+}
+
+.canvas {
+    width: 68%;
+}
+
+.side-bar {
+    width: 15%;
+    border-style: solid;
+}
+
+.item-handler * {
+    pointer-events: none;
+}
