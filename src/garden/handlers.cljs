@@ -54,6 +54,16 @@
     (state/update [:layers] layers)
     (state/select-layer id)))
 
+(defn remove-layer [event]
+  (let [id (-> event (event-field "id") js/parseInt)]
+    (->> (state/get :layers)
+         (remove #(= (:id %) id))
+         (into [])
+         (state/update [:layers]))
+    (println (state/get :layers))
+    (when (= (state/get :current :id) id) (state/update [:current] nil))
+    (render @state/app-state)))
+
 
 (defn update-value [cast accessor event]
   (state/update accessor (cast (event-field event "value"))))

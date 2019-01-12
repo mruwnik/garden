@@ -20,10 +20,12 @@
 
 
 (defn description-item [item & {:keys [on-click classes]}]
-  [:p {:id (:id item)
-       :class (join " " classes)
-       :on-click on-click}
-    [:dt (:name item)] [:dd (:desc item)]])
+  [:div
+   [:button {:id (:id item) :type "button" :on-click handlers/remove-layer} "delete " (:name item)]
+   [:p {:id (:id item)
+        :class (join " " classes)
+        :on-click on-click}
+    [:dt (:name item)] [:dd (:desc item)]]])
 
 (defn layer-classes [layer]
   (concat
@@ -57,7 +59,7 @@
              [:fieldset
               [:legend "Location"]
               [text-input "lat" "garden-lat" [:garden :lat] :cast js/parseFloat]
-              [text-input "lon" "garden-lon" [:garden :lon] :cast js/parseFloat]]]))
+              [text-input "lon" "garden-lon" [:garden :lon] :cast js/parseFloat]]] :start-open false))
 
 
 (defn garden-layers []
