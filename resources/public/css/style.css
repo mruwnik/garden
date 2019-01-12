@@ -9,7 +9,8 @@
 }
 
 .side-bar {
-    width: 15%;
+    width: 350px;
+    margin-right: 10px;
 }
 
 .options-container {

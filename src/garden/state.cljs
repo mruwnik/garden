@@ -3,8 +3,8 @@
   (:require [reagent.core :as r]))
 
 (defonce app-state
-  (r/atom {:canvas {:width 1200 :height 300 :pixels-per-meter 10 :ctx nil}
-           :current nil
+  (r/atom {:canvas {:width 1200 :height 800 :pixels-per-meter 10 :ctx nil}
+           :garden {:name "Bla bla bla" :lat 12.21 :lon 43.2}
            :layers [{:id 1 :name "layer 1" :desc "asdadas asd asd asdasd asd asd asd asd " :points [] :colour "red"}
                        {:id 2 :name "layer 2" :desc "ggrere reg er gre  " :points [] :colour "green"}
                         {:id 3 :name "layer 3" :desc "ghtrrth sdf werrew" :points [] :colour "blue"}]}))
@@ -32,3 +32,9 @@
                  (map-indexed #(assoc %2 :index %1))
                  (filter #(= (:id %) layer-id))
                  first))))
+
+(defn set-canvas-size []
+  (let [window-width (or (aget  js/window "innerWidth") (-> js/document (aget "body") (aget "clientWidth")))
+        window-height (or (aget  js/window "innerHeight") (-> js/document (aget "body") (aget "clientHeight")))]
+    (update [:canvas :width] (- window-width 380))
+    (update [:canvas :height] (- window-height 20))))

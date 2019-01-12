@@ -18,5 +18,7 @@
             (.getElementById js/document "app")))
 
 
+(state/set-canvas-size)
+
 (render-react)
 (canvas/render @state/app-state)

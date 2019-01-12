@@ -45,5 +45,5 @@
   (render @state/app-state))
 
 
-(defn update-value [accessor event]
-  (state/update accessor (event-field event "value")))
+(defn update-value [cast accessor event]
+  (state/update accessor (cast (event-field event "value"))))

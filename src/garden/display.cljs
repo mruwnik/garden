@@ -42,13 +42,23 @@
    [:details {:open start-open}
     [:summary summary] contents]])
 
-
-(defn text-input [label name accessor]
+(defn text-input [label name accessor & {:keys [class cast] :or {cast identity}}]
   [:p
    [:label {:for name} label]
    [:input {:type "text" :name name
+            :class class
             :value (or  (state/get-in accessor) "")
-            :on-change (partial handlers/update-value accessor)}]])
+            :on-change (partial handlers/update-value cast accessor)}]])
+
+(defn garden-settings []
+  (side-bar "Garden settings"
+            [:form {:name "globals"}
+             [text-input "Name" "garden-name" [:garden :name]]
+             [:fieldset
+              [:legend "Location"]
+              [text-input "lat" "garden-lat" [:garden :lat] :cast js/parseFloat]
+              [text-input "lon" "garden-lon" [:garden :lon] :cast js/parseFloat]]]))
+
 
 (defn garden-layers []
   (side-bar "Patches" (description-list (state/get :layers) :on-click handlers/select-layer)))
@@ -66,6 +76,7 @@
 (defn garden-app []
   [:div
    [:div {:class "side-bar left"}
+    [garden-settings]
     [edit-layer]
     [garden-layers]]
    [grid-canvas {:id "garden-canvas" :width (state/get :canvas :width) :height (state/get :canvas :height)}]

@@ -105,6 +105,6 @@
     (draw-layers app-state)
 
    ; draw any other things
-
+    (println (:canvas app-state))
     (draw-dotted-line ctx (state/current-line))
   ))
