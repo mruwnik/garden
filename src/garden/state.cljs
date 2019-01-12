@@ -9,9 +9,6 @@
                        {:id 2 :name "layer 2" :desc "ggrere reg er gre  " :points [] :colour "green"}
                         {:id 3 :name "layer 3" :desc "ghtrrth sdf werrew" :points [] :colour "blue"}]}))
 
-(defonce current-layer (r/atom nil))
-
-
 ;; Accessors
 (defn get [& path] (cljs.core/get-in @app-state path))
 (defn get-in [path] (cljs.core/get-in @app-state path))
@@ -26,9 +23,12 @@
 
 (defn set-context [ctx] (update [:canvas :ctx] ctx))
 
-(defn select-layer [layer-id]
-  (->> (:layers @app-state)
-       (map-indexed #(assoc %2 :index %1))
-       (filter #(= (:id %) layer-id))
-       first
-       (update [:current])))
+(defn select-layer
+  "Select the layer with the given id as active, or deactivate it if previously chosen."
+  [layer-id]
+  (update [:current]
+          (when (not= layer-id (get :current :id))
+            (->> (:layers @app-state)
+                 (map-indexed #(assoc %2 :index %1))
+                 (filter #(= (:id %) layer-id))
+                 first))))

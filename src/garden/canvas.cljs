@@ -78,8 +78,13 @@
       (.fill ctx))))
 
 
-(defn draw-layers [ctx layers]
-  (doseq [layer layers] (draw-layer ctx layer)))
+(defn draw-layers [app-state]
+  (let [ctx (-> app-state :canvas :ctx)
+        layers (:layers app-state)]
+    (set! (.-globalAlpha ctx) (if (-> app-state :current)  0.4 1))
+    (doseq [layer layers]
+        (draw-layer ctx layer))
+    (set! (.-globalAlpha ctx) 1)))
 
 
 (defn render
@@ -97,7 +102,7 @@
     (.stroke ctx (grid-path  width height (:pixels-per-meter canvas)))
 
     ; draw all garden layers
-    (draw-layers ctx (:layers app-state))
+    (draw-layers app-state)
 
    ; draw any other things
 

@@ -40,7 +40,9 @@
 
 (defn select-layer
   "Handle a layer being selected."
-  [event] (state/select-layer (-> event (event-field "id") js/parseInt)))
+  [event]
+  (state/select-layer (-> event (event-field "id") js/parseInt))
+  (render @state/app-state))
 
 
 (defn update-value [accessor event]
