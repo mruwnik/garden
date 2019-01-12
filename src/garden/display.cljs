@@ -46,7 +46,7 @@
   (side-bar "Patches" (description-list (state/get :layers) :on-click handlers/select-layer)))
 
 (defn edit-layer []
-  (when @state/current-layer
+  (when (state/current-layer)
     [:div {:class "side-bar left"}
      [:h4 "Edit patch"]
      [:form {:id "edit-layer"}

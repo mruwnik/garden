@@ -30,7 +30,7 @@
   [e]
   (let [canvas (state/get :canvas)]
     (render @state/app-state)
-    (draw-layer (:ctx canvas) (state/current-line))))
+    (draw-layer (:ctx canvas) (state/current-layer))))
 
 
 

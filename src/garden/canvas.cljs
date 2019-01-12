@@ -67,12 +67,19 @@
   "Draw a polygon from all the points in `layer`."
   [ctx layer]
   (when (seq layer)
-    (let [[start-x start-y] (first layer)]
+    (let [points (:points layer)
+          [start-x start-y] (first points)]
       (.moveTo ctx start-x start-y)
       (.beginPath ctx)
-      (doseq [[x y] layer]
+      (doseq [[x y] points]
         (.lineTo ctx x y))
+
+      (set! (.-fillStyle ctx) (:colour layer))
       (.fill ctx))))
+
+
+(defn draw-layers [ctx layers]
+  (doseq [layer layers] (draw-layer ctx layer)))
 
 
 (defn render
@@ -88,6 +95,9 @@
     ; draw the grid
     (set! (.-lineWidth ctx) 0.3)
     (.stroke ctx (grid-path  width height (:pixels-per-meter canvas)))
+
+    ; draw all garden layers
+    (draw-layers ctx (:layers app-state))
 
    ; draw any other things
 
