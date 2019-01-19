@@ -18,6 +18,54 @@
      (if (<= (- y floor-y) cutoff) floor-y (+ floor-y grid-size))]))
 
 
+(defn linear-equation
+  "Return a linear equation function going through the given 2 points."
+  [[x1 y1] [x2 y2]]
+  (when (not= x1 x2)
+    (let [a (/ (- y2 y1) (- x2 x1))
+          b (- y1 (* a x1))]
+      (fn [x] (+ (* a x) b)))))
+
+
+(defn dot-product
+  "Calculate the dot product of the given points."
+  [[x1 y1] [x2 y2]]
+  (+ (* x1 x2) (* y1 y2)))
+
+(defn points-distance
+  "Return the distance between the two given points."
+  [[x1 y1] [x2 y2]]
+  (Math/sqrt (+ (Math/pow (- x1 x2) 2) (Math/pow (- y1 y2) 2))))
+
+
+(defn distance-from-segment
+  "Return how far the given point is from the given line.
+
+  Taken from `http://geomalgorithms.com/a02-_lines.html`"
+  [[x1 y1] [x2 y2] [xp yp]]
+  (let [v [(- x2 x1) (- y2 y1)]
+        w [(- xp x1) (- yp y1)]
+        c1 (dot-product w v)
+        c2 (dot-product v v)
+        [vx vy] v
+        b (when c2 (/ c1 c2))]
+    (cond
+      (< c1 0) (points-distance [xp yp] [x1 y1])
+      (<= c2 c1) (points-distance [xp yp] [x2 y2])
+      true (points-distance [xp yp] [(+ x1 (* b vx)) (+ y1 (* b vy))]))))
+
+
+(defn on-contour
+  "Return the first segment of the given `shape` that is no less than `max-dist` from `point`."
+  [shape point max-dist]
+  (loop [checked (first shape)
+         points (conj (rest shape) (first shape))]
+    (cond
+      (not (seq points)) nil
+      (< (distance-from-segment checked (first points) point) max-dist) [checked (first points)]
+      true (recur (first points) (rest points)))))
+
+
 (defn height-on-line [[x1 y1] [x2 y2] xp]
   (+ y1 (/ (* (- xp x1) (- y2 y1)) (- x2 x1))))
 
@@ -125,7 +173,7 @@
 (defn draw-layers [app-state]
   (let [ctx (-> app-state :canvas :ctx)
         offsets [(-> app-state :canvas :x-offset) (-> app-state :canvas :y-offset)]
-        layers (:layers app-state)]
+        layers (reverse (:layers app-state))]
     (set! (.-globalAlpha ctx) (if (-> app-state :current)  0.4 1))
     (doseq [layer layers]
         (draw-polygon ctx (:points layer) (:colour layer) offsets))

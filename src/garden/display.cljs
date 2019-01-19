@@ -12,9 +12,7 @@
          :on-mouse-move handlers/mouse-move
          :on-mouse-out handlers/mouse-out
          :on-mouse-down handlers/mouse-down
-         :on-mouse-up handlers/mouse-up
-         ;:on-click handlers/select-point
-         }
+         :on-mouse-up handlers/mouse-up}
         "Please upgrade your browser"]])))
 
 (def grid-canvas

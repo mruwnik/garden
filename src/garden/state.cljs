@@ -43,11 +43,21 @@
 (defn end-move [] (update [:current :last-point] nil))
 
 (defn- offset-point [[x-offset y-offset] [x y]] [(+ x x-offset) (+ y y-offset)])
-(defn move-current-layer [offset]
+(defn move-current-layer
+  "Move the current layer by the given offset."
+  [offset]
   (->>
    (current-line)
    (map (partial offset-point offset))
    (update (current-accessor :points))))
+
+(defn move-current-point
+  "Move the last selected point in the current layer to the new position"
+  [pos]
+  (->> (current-line)
+       (replace {(get :current :last-point) pos})
+       (update (current-accessor :points)))
+  (update [:current :last-point] pos))
 
 
 (defn select-layer

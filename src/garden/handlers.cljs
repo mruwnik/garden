@@ -1,14 +1,31 @@
 (ns garden.handlers
   (:require [garden.state :as state]
-            [garden.canvas :refer [render add-line round-pos draw-polygon potential-polygon in-shape]]))
+            [garden.canvas :refer [
+                                   render add-line round-pos draw-circle
+                                   draw-polygon potential-polygon in-shape on-contour]]))
 
 
 (defn mouse-pos
-  [e x-offset y-offset]
-  (let [bounding-box (-> e (aget "target") (.getBoundingClientRect))
-        x (- (aget e "clientX") (aget bounding-box "left") x-offset)
-        y (- (aget e "clientY") (aget bounding-box "top") y-offset)]
-    [x y]))
+  ([e] (mouse-pos e (state/get :canvas :x-offset) (state/get :canvas :y-offset)))
+  ([e x-offset y-offset]
+   (let [bounding-box (-> e (aget "target") (.getBoundingClientRect))
+         x (- (aget e "clientX") (aget bounding-box "left") x-offset)
+         y (- (aget e "clientY") (aget bounding-box "top") y-offset)]
+     [x y])))
+
+
+(defn closest-mouse-pos [e]
+  (round-pos e (state/get :canvas :pixels-per-meter) (state/get :canvas :x-offset) (state/get :canvas :y-offset)))
+
+(defn over-layer-point
+  ([e] (over-layer-point e (state/current-line)))
+  ([e line] (some #(= (closest-mouse-pos e) %) line)))
+
+(defn over-layer-line
+  "Return the segment which the mouse is currently over."
+  [e]
+  (let [line (state/current-line)]
+    (on-contour (conj line (last line)) (mouse-pos e) (/ (state/get :canvas :pixels-per-meter) 2))))
 
 
 (defn clicked-layer
@@ -19,7 +36,7 @@
   [e layer]
   (let [points (:points layer)
         closed (if (= (last points) (first points)) points (conj points (last points)))]
-    (in-shape closed (mouse-pos e (state/get :canvas :x-offset) (state/get :canvas :y-offset)))))
+    (in-shape closed (mouse-pos e))))
 
 
 (defn selected-layer
@@ -47,8 +64,15 @@
   [e]
   (state/update
    (state/current-accessor :points)
-   (conj (state/current-line)
-         (round-pos e (state/get :canvas :pixels-per-meter) (state/get :canvas :x-offset) (state/get :canvas :y-offset)))))
+   (conj (state/current-line) (closest-mouse-pos e))))
+
+(defn insert-point
+  "Insert the clicked point between the `start` and `end` points."
+  [e [start end]]
+  (let [pos (closest-mouse-pos e)
+        [before after] (split-with #(not= end %) (state/current-line))]
+    (state/update
+     (state/current-accessor :points) (concat before [pos] after))))
 
 
 (defn line-to-point
@@ -66,18 +90,36 @@
 ;;; Layer movement handlers
 
 (defn start-move
-  "If the current mouse position is inside the current layer, then start moving."
+  "If the current mouse position is inside the current layer, then start moving.
+  If a line was selected, then first add a new point.."
   [e]
-  (when (clicked-layer e (state/current-layer))
-    (state/move (mouse-pos e 0 0))
-    (state/set-mode :move)))
+  (let [over (over-layer-point e)
+        on-line (over-layer-line e)
+        in-layer (clicked-layer e (state/current-layer))]
+    (when on-line
+      (insert-point e on-line)
+      )
+    (when (or over in-layer on-line)
+      (state/move (closest-mouse-pos e))
+      (state/set-mode
+       (cond
+         over :move-point
+         on-line :move-point
+         in-layer :move)))))
 
 
 (defn move-layer [e]
-  (-> (mouse-pos e 0 0) state/move state/move-current-layer)
+  (-> (closest-mouse-pos e) state/move state/move-current-layer)
   (render @state/app-state))
 
+
+(defn move-point [e]
+  (-> (closest-mouse-pos e) state/move-current-point)
+  (render @state/app-state))
+
+
 (defn end-move [e]
+  (state/end-move)
   (state/set-mode :edit))
 
 
@@ -86,14 +128,18 @@
 (defn set-pointer [e action]
   (state/set-pointer
    (cond
+     (and (= action :edit) (over-layer-point e)) :crosshair
+     (and (= action :edit) (over-layer-line e)) :pointer
      (and (= action :edit) (clicked-layer e (state/current-layer))) :grab
      (= action :move) :grabbing
+     (= action :move-point) :grabbing
      true :default)))
 
 
 (defn mouse-down
   "Call the appropriate handler for the current state,"
   [e]
+  (println "down:" (state/get-mode))
   (condp = (state/get-mode)
     nil nil                                                            ; if no mode is active, then do nothing
     :edit (start-move e)                                        ; start moving the shape
@@ -107,11 +153,11 @@
   "Handle a mouse movement by calling the appropriate handlers for this state."
   [e]
   (condp = (state/get-mode)
-    nil nil                                      ; if no mode is active, do nothing
+    nil nil                                       ; if no mode is active, do nothing
     :edit (set-pointer e :move)
-    :move (move-layer e)            ; when moving, note the point for futher reference
-    :draw (line-to-point e)               ; when drawing, display a line from the current position to the last point on the line
-    )
+    :move (move-layer e)                ; move the whole layer
+    :move-point (move-point e)        ; just move the last selected point
+    :draw (line-to-point e))               ; when drawing, display a line from the current position to the last point on the line
   (set-pointer e (state/get-mode)))
 
 
@@ -122,7 +168,8 @@
     nil (select-layer (selected-layer e))
     :edit (select-layer (selected-layer e))
     :draw (append-point e)
-    :move (end-move e))
+    :move (end-move e)
+    :move-point (end-move e))
   (set-pointer e (state/get-mode)))
 
 
@@ -133,7 +180,6 @@
   (when (= (state/get-mode) :draw)
     (state/set-mode :edit))
   (render @state/app-state))
-
 
 
 ;; Side bar handlers
@@ -166,7 +212,6 @@
          (remove #(= (:id %) id))
          (into [])
          (state/update [:layers]))
-    (println (state/get :layers))
     (when (= (state/get :current :id) id) (state/update [:current] nil))
     (render @state/app-state)))
 
