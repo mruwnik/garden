@@ -6,7 +6,7 @@
 (defn canvas []
   (let []
     (fn [{:keys [id width height]}]
-      [:div {:class "canvas left"}
+      [:div {:class (str "canvas left " (name (state/get :canvas :pointer)))}
        [:canvas
         {:ref id :width width :height height
          :on-mouse-move handlers/mouse-move

@@ -70,7 +70,6 @@
   [e]
   (when (clicked-layer e (state/current-layer))
     (state/move (mouse-pos e 0 0))
-    (state/set-pointer :move)
     (state/set-mode :move)))
 
 
@@ -79,11 +78,18 @@
   (render @state/app-state))
 
 (defn end-move [e]
-  (state/set-mode :edit)
-  (state/set-pointer :default))
+  (state/set-mode :edit))
 
 
 ;;; Basic canvas mouse handlers (a state machine, more or less)
+
+(defn set-pointer [e action]
+  (state/set-pointer
+   (cond
+     (and (= action :edit) (clicked-layer e (state/current-layer))) :grab
+     (= action :move) :grabbing
+     true :default)))
+
 
 (defn mouse-down
   "Call the appropriate handler for the current state,"
@@ -93,7 +99,8 @@
     :edit (start-move e)                                        ; start moving the shape
     :draw nil                                                       ; when drawing, only mouse-move and mouse-down are used
     :move (throw (js/Error. "Shouldn't happen"))   ; this shouldn't happen, as :move is a substate of :edit
-    ))
+    )
+  (set-pointer e (state/get-mode)))
 
 
 (defn mouse-move
@@ -101,10 +108,11 @@
   [e]
   (condp = (state/get-mode)
     nil nil                                      ; if no mode is active, do nothing
-    :edit nil                                   ; ditto for :edit mode
+    :edit (set-pointer e :move)
     :move (move-layer e)            ; when moving, note the point for futher reference
     :draw (line-to-point e)               ; when drawing, display a line from the current position to the last point on the line
-  ))
+    )
+  (set-pointer e (state/get-mode)))
 
 
 (defn mouse-up
@@ -114,7 +122,8 @@
     nil (select-layer (selected-layer e))
     :edit (select-layer (selected-layer e))
     :draw (append-point e)
-    :move (end-move e)))
+    :move (end-move e))
+  (set-pointer e (state/get-mode)))
 
 
 (defn mouse-out

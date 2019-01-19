@@ -8,6 +8,18 @@
     width: 68%;
 }
 
+.canvas.grabbing {
+    cursor: -webkit-grabbing;
+    cursor: grabbing;
+}
+.canvas.grab {
+    cursor: -webkit-grab;
+    cursor: grab;
+}
+canvas.move {cursor: move;}
+canvas.crosshair {cursor: crosshair;}
+
+
 .side-bar {
     width: 350px;
     margin-right: 10px;
