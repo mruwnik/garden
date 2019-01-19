@@ -9,9 +9,12 @@
       [:div {:class "canvas left"}
        [:canvas
         {:ref id :width width :height height
-         :on-mouse-move handlers/line-to-point
+         :on-mouse-move handlers/mouse-move
          :on-mouse-out handlers/mouse-out
-         :on-click handlers/select-point}
+         :on-mouse-down handlers/mouse-down
+         :on-mouse-up handlers/mouse-up
+         ;:on-click handlers/select-point
+         }
         "Please upgrade your browser"]])))
 
 (def grid-canvas
@@ -66,7 +69,7 @@
   (side-bar "Patches"
             [:div
              [:button {:type "button" :on-click handlers/add-layer} "New patch"]
-             (description-list (state/get :layers) :on-click handlers/select-layer)]))
+             (description-list (state/get :layers) :on-click handlers/select-event-layer)]))
 
 (defn edit-layer []
   (when (state/current-layer)
@@ -76,6 +79,7 @@
       [text-input "Name" "layer-name" (state/current-accessor :name)]
       [text-input "Description" "layer-desc" (state/current-accessor :desc)]
       [text-input "Colour" "layer-colour" (state/current-accessor :colour)]
+      [:button {:type "button" :on-click #(state/set-mode :draw)} "Draw"]
       ]]))
 
 (defn navigation []

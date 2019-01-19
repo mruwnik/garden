@@ -18,11 +18,41 @@
      (if (<= (- y floor-y) cutoff) floor-y (+ floor-y grid-size))]))
 
 
+(defn height-on-line [[x1 y1] [x2 y2] xp]
+  (+ y1 (/ (* (- xp x1) (- y2 y1)) (- x2 x1))))
+
+
+(defn winding-score
+  "Return the score of the given line according to the Non Zero Rule (https://en.wikipedia.org/wiki/Nonzero-rule)"
+  [[x1 y1] [x2 y2] [xp yp]]
+  (cond
+    (and (< yp y1) (< yp y2)) 0  ; the line is under the point
+    (and (< xp x1) (< xp x2)) 0  ; the line is to the right of the point
+    (and (> xp x1) (> xp x2)) 0  ; the line is to the left of the point
+    (and (= x1 xp) (= x2 xp)) 0  ; the line is a vertical line above the point - disregard it
+    (or (= x1 xp) (= x2 xp)) (if (< x1 x2) 0.5 -0.5)  ; the line starts or ends at the point - the next line will also start or end here, so both should be treated as one
+    (> x1 x2) (- (winding-score [x2 y2] [x1 y1] [xp yp]))  ; the line is right to left - turn it around and check again
+    (> y1 y2) (winding-score [(- (* 2 xp) x2) y2] [(- (* 2 xp) x1) y1] [xp yp]) ; the line goes down - mirror image the line to make checking easier
+    :else (if (>= yp (height-on-line [x1 y1] [x2 y2] xp)) 1 0)))  ; the line is a normal linear function - check if the point lies above or below it
+
+(defn in-shape
+  "Return any layers that the given point belongs to."
+  [shape point]
+  (not= 0
+        (loop [checked (first shape)
+               points (conj (rest shape) (first shape))
+               sum 0]
+          (if-not (seq points)
+            sum
+            (recur (first points) (rest points) (+ sum (winding-score checked (first points) point)))))))
+
+
 (defn add-line
   "Add a line to the given canvas `ctx`."
-  [ctx [start-x start-y] [end-x end-y]]
-  (.moveTo ctx start-x start-y)
-  (.lineTo ctx end-x end-y))
+  ([ctx start end] (add-line ctx start end [0 0]))
+  ([ctx [start-x start-y] [end-x end-y] [x-off y-off]]
+   (.moveTo ctx (+ x-off start-x) (+ y-off start-y))
+   (.lineTo ctx (+ x-off end-x) (+ y-off end-y))))
 
 
 (defn draw-circle
@@ -63,29 +93,42 @@
       (draw-circle ctx (+ x-offset x) (+ y-offset y) 2))))
 
 
-(defn draw-layer
+(defn draw-polygon
   "Draw a polygon from all the points in `layer`."
-  [ctx layer x-offset y-offset]
-  (when (seq layer)
-    (let [points (:points layer)
-          [start-x start-y] (first points)]
-      (.moveTo ctx (+ x-offset start-x) (+ y-offset start-y))
-      (.beginPath ctx)
-      (doseq [[x y] points]
-        (.lineTo ctx (+ x-offset x) (+ y-offset y)))
+  ([ctx points colour] (draw-polygon ctx points colour [0 0]))
+  ([ctx points colour [x-offset y-offset]]
+   (when (seq points)
+     (let [[start-x start-y] (first points)]
+       (.moveTo ctx (+ x-offset start-x) (+ y-offset start-y))
+       (.beginPath ctx)
+       (doseq [[x y] points]
+         (.lineTo ctx (+ x-offset x) (+ y-offset y)))
 
-      (set! (.-fillStyle ctx) (:colour layer))
-      (.fill ctx))))
+       (set! (.-fillStyle ctx) colour)
+       (.fill ctx)))))
+
+
+(defn potential-polygon
+  ([ctx points new-point colour] (potential-polygon ctx points new-point colour [0 0]))
+  ([ctx points new-point colour offset]
+   (let [prev (.-globalAlpha ctx)]
+     (set! (.-globalAlpha ctx) 0.4)
+     (println offset)
+     (draw-polygon ctx (conj points new-point) colour offset)
+     (set! (.-globalAlpha ctx) prev)
+
+     (add-line ctx (last points) new-point offset)
+     (set! (.-lineWidth ctx) 1)
+     (.stroke ctx))))
 
 
 (defn draw-layers [app-state]
   (let [ctx (-> app-state :canvas :ctx)
-        x-offset (-> app-state :canvas :x-offset)
-        y-offset (-> app-state :canvas :y-offset)
+        offsets [(-> app-state :canvas :x-offset) (-> app-state :canvas :y-offset)]
         layers (:layers app-state)]
     (set! (.-globalAlpha ctx) (if (-> app-state :current)  0.4 1))
     (doseq [layer layers]
-        (draw-layer ctx layer x-offset y-offset))
+        (draw-polygon ctx (:points layer) (:colour layer) offsets))
     (set! (.-globalAlpha ctx) 1)))
 
 
