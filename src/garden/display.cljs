@@ -91,7 +91,9 @@
             [:button {:type "button" :on-click #(handlers/move :left)} "<"]
             [:button {:type "button" :on-click #(handlers/move :up)} "^"]
             [:button {:type "button" :on-click #(handlers/move :down)} "v"]
-            [:button {:type "button" :on-click #(handlers/move :right)} ">"]]))
+            [:button {:type "button" :on-click #(handlers/move :right)} ">"]
+            [:button {:type "button" :on-click #(handlers/zoom 2)} "+"]
+            [:button {:type "button" :on-click #(handlers/zoom 0.5)} "-"]]))
 
 (defn garden-app []
   [:div

@@ -1,23 +1,6 @@
 (ns garden.canvas
   (:require [garden.state :as state]))
 
-(defn round-pos
-  "Round off the coordinates of the given event.
-
-  The idea is to limit the amount of points on the canvas, where clicking on a pixel
-  will result in the closest point on the grid being selected.
-  "
-  [e grid-size x-offset y-offset]
-  (let [bounding-box (-> e (aget "target") (.getBoundingClientRect))
-        x (- (aget e "clientX") (aget bounding-box "left") x-offset)
-        y (- (aget e "clientY") (aget bounding-box "top") y-offset)
-        floor-x (- x (mod x grid-size))
-        floor-y (- y (mod y grid-size))
-        cutoff (/ grid-size 2)]
-    [(if (<= (- x floor-x) cutoff) floor-x (+ floor-x grid-size))
-     (if (<= (- y floor-y) cutoff) floor-y (+ floor-y grid-size))]))
-
-
 (defn linear-equation
   "Return a linear equation function going through the given 2 points."
   [[x1 y1] [x2 y2]]
@@ -111,72 +94,81 @@
   (.fill ctx))
 
 
+(defn scale [s [x y]] [(* s x) (* s y)])
+(defn translate [[x-off y-off] [x y]] [(+ x-off x) (+ y-off y)])
+
+(defn scaled-offsetted
+  "Return the given points scaled and offsetted by the given values,"
+  [points s offset]
+  (map #(translate offset (scale s %)) points))
+
+
 (defn grid-path
-  "Generate a grid for the given `width` and `height`, where a meter is `pixels-per-meter`."
-  [width height pixels-per-meter]
+  "Generate a grid for the given `width` and `height`, where a meter is `pixels-per-unit`."
+  [width height pixels-per-unit]
   (let [grid (js/Path2D.)]
-    (doseq [i (range 0  (+ width 1) pixels-per-meter)]
+    (doseq [i (range 0  (+ width 1) pixels-per-unit)]
       (add-line grid [i 0] [i height]))
-    (doseq [i (range 0 (+ height 1) pixels-per-meter)]
+    (doseq [i (range 0 (+ height 1) pixels-per-unit)]
       (add-line grid [0 i] [width i]))
     grid))
 
 
 (defn draw-dotted-line
   "Draw lines joining all the given `points`, as well as marking the `points` on the resulting line."
-  [ctx points x-offset y-offset]
+  [ctx points x-offset y-offset scale]
   ; Draw the line
   (when (seq points)
-    (let [[start-x start-y] (first points)]
-      (.moveTo ctx (+ x-offset start-x) (+ y-offset start-y))
+    (let [points (scaled-offsetted points scale [x-offset y-offset])
+          [start-x start-y] (first points)]
+      (.moveTo ctx start-x start-y)
       (.beginPath ctx)
       (doseq [[x y] points]
-        (.lineTo ctx (+ x-offset x) (+ y-offset y)))
+        (.lineTo ctx x y))
 
       (set! (.-lineWidth ctx) 1)
-      (.stroke ctx))
+      (.stroke ctx)
 
     ; Draw points for each of the points on the line
-    (doseq [[x y] points]
-      (draw-circle ctx (+ x-offset x) (+ y-offset y) 2))))
+      (doseq [[x y] points]
+        (draw-circle ctx x y 2)))))
 
 
 (defn draw-polygon
   "Draw a polygon from all the points in `layer`."
-  ([ctx points colour] (draw-polygon ctx points colour [0 0]))
-  ([ctx points colour [x-offset y-offset]]
-   (when (seq points)
-     (let [[start-x start-y] (first points)]
-       (.moveTo ctx (+ x-offset start-x) (+ y-offset start-y))
-       (.beginPath ctx)
-       (doseq [[x y] points]
-         (.lineTo ctx (+ x-offset x) (+ y-offset y)))
+  [ctx points colour]
+  (when (seq points)
+    (let [[start-x start-y] (first points)]
+      (.moveTo ctx start-x start-y)
+      (.beginPath ctx)
+      (doseq [[x y] points]
+        (.lineTo ctx x y))
 
-       (set! (.-fillStyle ctx) colour)
-       (.fill ctx)))))
+      (set! (.-fillStyle ctx) colour)
+      (.fill ctx))))
 
 
 (defn potential-polygon
-  ([ctx points new-point colour] (potential-polygon ctx points new-point colour [0 0]))
-  ([ctx points new-point colour offset]
-   (let [prev (.-globalAlpha ctx)]
-     (set! (.-globalAlpha ctx) 0.4)
-     (println offset)
-     (draw-polygon ctx (conj points new-point) colour offset)
-     (set! (.-globalAlpha ctx) prev)
+  [ctx points colour]
+  (let [prev (.-globalAlpha ctx)
+        new-point (first points)]
+    (set! (.-globalAlpha ctx) 0.4)
+    (draw-polygon ctx points colour)
+    (set! (.-globalAlpha ctx) prev)
 
-     (add-line ctx (last points) new-point offset)
-     (set! (.-lineWidth ctx) 1)
-     (.stroke ctx))))
+    (add-line ctx (last points) new-point)
+    (set! (.-lineWidth ctx) 1)
+    (.stroke ctx)))
 
 
 (defn draw-layers [app-state]
   (let [ctx (-> app-state :canvas :ctx)
+        scale (-> app-state :canvas :zoom)
         offsets [(-> app-state :canvas :x-offset) (-> app-state :canvas :y-offset)]
         layers (reverse (:layers app-state))]
     (set! (.-globalAlpha ctx) (if (-> app-state :current)  0.4 1))
     (doseq [layer layers]
-        (draw-polygon ctx (:points layer) (:colour layer) offsets))
+      (draw-polygon ctx (scaled-offsetted (:points layer) scale offsets) (:colour layer)))
     (set! (.-globalAlpha ctx) 1)))
 
 
@@ -192,11 +184,11 @@
 
     ; draw the grid
     (set! (.-lineWidth ctx) 0.3)
-    (.stroke ctx (grid-path  width height (:pixels-per-meter canvas)))
+    (.stroke ctx (grid-path width height (:pixels-per-unit canvas)))
 
     ; draw all garden layers
     (draw-layers app-state)
 
    ; draw any other things
-    (draw-dotted-line ctx (state/current-line) (:x-offset canvas) (:y-offset canvas))
+    (draw-dotted-line ctx (state/current-line) (:x-offset canvas) (:y-offset canvas) (:zoom canvas))
   ))

@@ -32,6 +32,9 @@
 .item-handler * {
     pointer-events: none;
 }
+.item-handler button {
+    pointer-events: all;;
+}
 
 .item-handler.selected {
     background-color: lightblue;

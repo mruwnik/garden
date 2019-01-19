@@ -2,21 +2,36 @@
   (:require [garden.state :as state]
             [garden.localstorage :as localstorage]
             [garden.canvas :refer [
-                                   render add-line round-pos draw-circle
-                                   draw-polygon potential-polygon in-shape on-contour]]))
+                                   render add-line draw-circle translate scaled-offsetted
+                                   scale potential-polygon in-shape on-contour]]))
 
 
 (defn mouse-pos
-  ([e] (mouse-pos e (state/get :canvas :x-offset) (state/get :canvas :y-offset)))
-  ([e x-offset y-offset]
+  ([e] (mouse-pos e [(- (state/get :canvas :x-offset)) (- (state/get :canvas :y-offset))] (state/get :canvas :zoom)))
+  ([e offset s]
    (let [bounding-box (-> e (aget "target") (.getBoundingClientRect))
-         x (- (aget e "clientX") (aget bounding-box "left") x-offset)
-         y (- (aget e "clientY") (aget bounding-box "top") y-offset)]
-     [x y])))
+         x (- (aget e "clientX") (aget bounding-box "left"))
+         y (- (aget e "clientY") (aget bounding-box "top"))]
+     (scale (/ 1 s) (translate offset [x y])))))
+
+
+(defn round-pos
+  "Round off the coordinates of the given event.
+
+  The idea is to limit the amount of points on the canvas, where clicking on a pixel
+  will result in the closest point on the grid being selected.
+  "
+  [e grid-size]
+  (let [[x y] (mouse-pos e)
+        floor-x (- x (mod x grid-size))
+        floor-y (- y (mod y grid-size))
+        cutoff (/ grid-size 2)]
+    [(if (<= (- x floor-x) cutoff) floor-x (+ floor-x grid-size))
+     (if (<= (- y floor-y) cutoff) floor-y (+ floor-y grid-size))]))
 
 
 (defn closest-mouse-pos [e]
-  (round-pos e (state/get :canvas :pixels-per-meter) (state/get :canvas :x-offset) (state/get :canvas :y-offset)))
+  (round-pos e (/ (state/get :canvas :pixels-per-unit) (state/get :canvas :zoom))))
 
 (defn over-layer-point
   ([e] (over-layer-point e (state/current-line)))
@@ -26,7 +41,7 @@
   "Return the segment which the mouse is currently over."
   [e]
   (let [line (state/current-line)]
-    (on-contour (conj line (last line)) (mouse-pos e) (/ (state/get :canvas :pixels-per-meter) 2))))
+    (on-contour (conj line (last line)) (mouse-pos e) (/ (state/get :canvas :pixels-per-unit) 2))))
 
 
 (defn clicked-layer
@@ -63,7 +78,7 @@
 (defn append-point
   "Append the selected point to the current layer."
   [e]
-  (state/update
+  (state/set-val
    (state/current-accessor :points)
    (conj (state/current-line) (closest-mouse-pos e))))
 
@@ -72,7 +87,7 @@
   [e [start end]]
   (let [pos (closest-mouse-pos e)
         [before after] (split-with #(not= end %) (state/current-line))]
-    (state/update
+    (state/set-val
      (state/current-accessor :points) (concat before [pos] after))))
 
 
@@ -82,10 +97,12 @@
   (when (seq (state/current-line))
     (let [canvas (state/get :canvas)
           ctx (:ctx canvas)
+          offset [(:x-offset canvas) (:y-offset canvas)]
           current-layer (state/current-layer)
-          point (round-pos e (:pixels-per-meter canvas) (:x-offset canvas) (:y-offset canvas))]
+          point (scale (:zoom canvas) (closest-mouse-pos e))
+          points (scaled-offsetted (:points current-layer) (:zoom canvas) offset)]
       (render @state/app-state)
-      (potential-polygon ctx (:points current-layer) point (:colour current-layer) [(:x-offset canvas) (:y-offset canvas)]))))
+      (potential-polygon ctx (conj points (translate offset point)) (:colour current-layer)))))
 
 
 ;;; Layer movement handlers
@@ -202,7 +219,7 @@
   (let [id (+ 1 (or (->> (state/get :layers) (map :id) (apply max)) 0))
         layer {:id id :name (str "New patch (" id ")") :colour (random-colour)}
         layers (conj (state/get :layers) layer)]
-    (state/update [:layers] layers)
+    (state/set-val [:layers] layers)
     (state/select-layer id)
     (state/set-mode :draw)))
 
@@ -211,22 +228,32 @@
     (->> (state/get :layers)
          (remove #(= (:id %) id))
          (into [])
-         (state/update [:layers]))
-    (when (= (state/get :current :id) id) (state/update [:current] nil))
+         (state/set-val [:layers]))
+    (when (= (state/get :current :id) id) (state/set-val [:current] nil))
     (render @state/app-state)))
 
-
 (defn update-value [cast accessor event]
-  (state/update accessor (cast (event-field event "value"))))
+  (state/set-val accessor (cast (event-field event "value"))))
+
+;;; Navigation
 
 (defn move [dir]
   (condp = dir
-    :left (state/update [:canvas :x-offset] (- (state/get :canvas :x-offset) 10))
-    :right (state/update [:canvas :x-offset] (+ (state/get :canvas :x-offset) 10))
-    :up (state/update [:canvas :y-offset] (- (state/get :canvas :y-offset) 10))
-    :down (state/update [:canvas :y-offset] (+ (state/get :canvas :y-offset) 10)))
+    :left (state/update [:canvas :x-offset] - (state/get :canvas :pixels-per-unit))
+    :right (state/update [:canvas :x-offset] + (state/get :canvas :pixels-per-unit))
+    :up (state/update [:canvas :y-offset] - (state/get :canvas :pixels-per-unit))
+    :down (state/update [:canvas :y-offset] + (state/get :canvas :pixels-per-unit)))
   (render @state/app-state))
 
+(defn zoom [by]
+  (state/update [:canvas :zoom] * by)
+  (state/update [:canvas :x-offset] * by)
+  (state/update [:canvas :y-offset] * by)
+  (state/set-val [:canvas :pixels-per-unit] (* 10 (state/get :canvas :zoom)))
+  (render @state/app-state))
+
+
+;; Storage
 
 (defn save []
   (->>
@@ -238,5 +265,5 @@
 (defn read-json [str] (js->clj (.parse js/JSON str) :keywordize-keys true))
 
 (defn load []
-  (->> :layers localstorage/get-item read-json (state/update [:layers]))
+  (->> :layers localstorage/get-item read-json (state/set-val [:layers]))
   (render @state/app-state))
