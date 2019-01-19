@@ -6,7 +6,7 @@
 (defn canvas []
   (let []
     (fn [{:keys [id width height]}]
-      [:div {:class (str "canvas left " (name (state/get :canvas :pointer)))}
+      [:div {:class (str "canvas left " (name (or (state/get :canvas :pointer) :default)))}
        [:canvas
         {:ref id :width width :height height
          :on-mouse-move handlers/mouse-move
@@ -22,11 +22,13 @@
 
 (defn description-item [item & {:keys [on-click classes]}]
   [:div
-   [:button {:id (:id item) :type "button" :on-click handlers/remove-layer} "delete " (:name item)]
    [:p {:id (:id item)
         :class (join " " classes)
         :on-click on-click}
-    [:dt (:name item)] [:dd (:desc item)]]])
+    [:dt
+     (:name item)
+     [:button {:id (:id item) :class "right" :type "button" :on-click handlers/remove-layer} "delete " (:name item)]]
+    [:dd (:desc item)]]])
 
 (defn layer-classes [layer]
   (concat
@@ -67,6 +69,9 @@
   (side-bar "Patches"
             [:div
              [:button {:type "button" :on-click handlers/add-layer} "New patch"]
+             "_______"
+             [:button {:type "button" :on-click #(handlers/save)} "save"]
+             [:button {:type "button" :on-click #(handlers/load)} "load"]
              (description-list (state/get :layers) :on-click handlers/select-event-layer)]))
 
 (defn edit-layer []
