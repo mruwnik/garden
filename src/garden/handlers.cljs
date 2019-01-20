@@ -196,6 +196,7 @@
   (state/end-move)
   (when (= (state/get-mode) :draw)
     (state/set-mode :edit))
+  (println (state/get :layers))
   (render @state/app-state))
 
 
