@@ -1,95 +1,206 @@
 (ns garden.state
-  (:refer-clojure :exclude [get get-in update set!])
   (:require [reagent.core :as r]))
 
+(def initial-state
+  {:garden {:name ""
+            :location {:lat nil :lon nil}}
 
-(defonce app-state
-  (r/atom {:canvas {:width 1200 :height 800 :pixels-per-unit 20 :ctx nil :x-offset 0 :y-offset 60 :zoom 0.5}
-           :garden {:name "Bla bla bla" :lat 12.21 :lon 43.2}
-           :layers [{:id 1, :name "house", :colour "grey", :points [[190 70] [480 70] [480 290] [390 290] [390 240] [190 240] [190 70]]}
-                    {:id 2, :name "patio", :colour "grey", :points [[480 160] [560 160] [560 70] [480 70]]}
-                    {:id 3, :name "herbs", :colour "DarkGreen", :points [[530 50] [530 -10] [740 -10] [740 -40] [480 -40] [480 50]]}
-                    {:id 4, :name "shed", :colour "SaddleBrown" , :points [[740 -40] [740 110] [860 110] [860 -40] [740 -40]]}
-                    {:id 5, :name "dads shed", :colour "Sienna" , :points [[860 110] [1070 110] [1070 -40] [860 -40]]}
-                    {:id 6, :name "mums lawn", :colour "LimeGreen" , :points [[530 70] [560 70] [560 160] [540 160] [540 260] [810 260] [810 260] [810 110] [740 110] [740 -10] [530 -10] [530 70]]}
-                    {:id 7, :name "mums flowers", :colour "Chartreuse" , :points [[810 110] [810 260] [540 260] [540 160] [480 160] [480 290] [860 290] [860 290] [860 110] [810 110]]}
-                    {:id 8, :name "fence", :colour "#000000", :points '([50 230] [60 230] [60 -40] [50 -40] [50 -40] [50 -50] [2890 -50] [2880 -40] [2890 -50] [2890 580] [2880 580] [2880 570] [60 550] [50 560] [60 560] [60 280] [50 280] [50 560] [2880 580] [2880 -40] [50 -40] [50 230])}
-                    {:id 9, :name "front lawn", :colour "Chartreuse", :points '([140 290] [120 340] [120 480] [370 480] [370 400] [330 360] [330 290] [140 290])}
-                    {:id 10, :name "front hedge", :colour "DarkGreen", :points '([310 550] [60 550] [60 0] [90 0] [90 220] [60 220] [60 280] [90 280] [90 520] [310 520] [310 550])}
-                    {:id 11, :name "bushes", :colour "LimeGreen" , :points '([140 280] [140 290] [120 330] [120 480] [370 480] [370 400] [400 380] [400 320] [460 320] [460 520] [90 520] [90 280] [140 280])}
-                    {:id 12, :name "driveway", :colour "LightSlateGray" , :points '([50 280] [50 230] [60 230] [60 220] [90 220] [90 -10] [180 -10] [180 240] [330 240] [330 290] [160 290] [140 280] [50 280])}
-                    {:id 13, :name "hazelnuts", :colour "GoldenRod" , :points '([470 -10] [480 -10] [480 -40] [60 -40] [60 -10] [470 -10])}
-                    {:id 14, :name "grass behind house", :colour "LimeGreen", :points '([180 -10] [180 70] [530 70] [530 50] [480 50] [480 -10] [180 -10] [180 -10])}
-                    {:id 15, :name "orchard", :colour "Olive" , :points '([460 290] [860 290] [860 150] [1070 150] [1070 40] [1690 40] [1690 560] [460 550] [460 290])}]
-           :current nil}))
+   ;; Domain data
+   :areas []    ; [{:id :type :name :points :color :properties}]
+   :plants []   ; [{:id :species-id :position :planted-date :source}]
 
-;; Accessors
-(defn get [& path] (cljs.core/get-in @app-state path))
-(defn get-in [path] (cljs.core/get-in @app-state path))
+   ;; Plant library
+   :library {:plants {}
+             :filter {:search "" :type nil}}
 
-(defn current-accessor [& path] (concat [:layers (get :current :index)] path))
-(defn current-layer [] (get-in (current-accessor)))
-(defn current-line [] (get-in (current-accessor :points)))
+   ;; Viewport
+   :viewport {:offset [0 0]
+              :zoom 1.0
+              :size {:width 800 :height 600}
+              :ctx nil}
 
-;; Setters
-(defn set-val [accessor value]
-  (swap! app-state assoc-in accessor value))
-(defn update [accessor func & params]
-  (set-val accessor (func (get-in accessor) values)))
+   ;; Tool state
+   :tool {:active :select
+          :state nil
+          :cursor :default}
 
+   ;; Selection
+   :selection {:type nil
+               :ids #{}}
 
-(defn set-context [ctx] (set-val [:canvas :ctx] ctx))
+   ;; History (undo/redo)
+   :history {:past []
+             :future []}
 
+   ;; UI state
+   :ui {:panels {:left {:open? true :width 260}
+                 :right {:open? true :width 260}
+                 :bottom {:open? false :height 120}}
+        :grid {:visible? true :spacing 50 :snap? false}
+        :spacing-circles {:visible? false}
+        :background {:visible? true}
+        :mode :plan
+        :hover {:position nil :plant-id nil}
+        :mouse {:canvas-pos nil}}
 
-;; Edit mode handlers
-(defn get-mode [] (get :current :mode))
-(defn set-mode [mode] (set-val [:current :mode] mode))
+   ;; Chat state
+   :chat {:open? false
+          :messages []  ; [{:role :user/:assistant :content "..."}]
+          :input ""
+          :loading? false}})
 
-(defn set-pointer [pointer] (set-val [:canvas :pointer] pointer))
+(defonce app-state (r/atom initial-state))
 
-(defn move
-  "Return the offset from the previous movement ([0 0] if there was no movement)."
-  [point]
-  (if-not (get :current :last-point)
-    (set-val [:current :last-point] point)
-    (let [[prev-x prev-y] (get :current :last-point)
-          [current-x current-y] point]
-      (set-val [:current :last-point] point)
-      [(- current-x prev-x) (- current-y prev-y)])))
-(defn end-move [] (set-val [:current :last-point] nil))
+;; State accessors
 
-(defn- offset-point [[x-offset y-offset] [x y]] [(+ x x-offset) (+ y y-offset)])
-(defn move-current-layer
-  "Move the current layer by the given offset."
-  [offset]
-  (->>
-   (current-line)
-   (map (partial offset-point offset))
-   (set-val (current-accessor :points))))
+(defn get-state
+  "Get the current app state or a path within it."
+  ([] @app-state)
+  ([& path] (get-in @app-state (vec path))))
 
-(defn move-current-point
-  "Move the last selected point in the current layer to the new position"
-  [pos]
-  (->> (current-line)
-       (replace {(get :current :last-point) pos})
-       (set-val (current-accessor :points)))
-  (set-val [:current :last-point] pos))
+;; Viewport helpers
 
+(defn viewport [] (:viewport @app-state))
+(defn zoom [] (get-in @app-state [:viewport :zoom]))
+(defn offset [] (get-in @app-state [:viewport :offset]))
+(defn canvas-ctx [] (get-in @app-state [:viewport :ctx]))
 
-(defn select-layer
-  "Select the layer with the given id as active, or deactivate it if previously chosen."
-  [layer-id]
-  (set-val [:current]
-          (when (not= layer-id (get :current :id))
-            (->> (:layers @app-state)
-                 (map-indexed #(assoc %2 :index %1))
-                 (filter #(= (:id %) layer-id))
-                 first)))
-  (when (current-layer)
-    (set-mode :edit)))
+;; Tool helpers
 
-(defn set-canvas-size []
-  (let [window-width (or (aget  js/window "innerWidth") (-> js/document (aget "body") (aget "clientWidth")))
-        window-height (or (aget  js/window "innerHeight") (-> js/document (aget "body") (aget "clientHeight")))]
-    (set-val [:canvas :width] (- window-width 380))
-    (set-val [:canvas :height] (- window-height 20))))
+(defn active-tool [] (get-in @app-state [:tool :active]))
+(defn tool-state [] (get-in @app-state [:tool :state]))
+
+;; Selection helpers
+
+(defn selection [] (:selection @app-state))
+(defn selected-ids [] (get-in @app-state [:selection :ids]))
+(defn selected? [id] (contains? (selected-ids) id))
+
+;; Domain data helpers
+
+(defn areas [] (:areas @app-state))
+(defn plants [] (:plants @app-state))
+
+(defn find-area [id]
+  (first (filter #(= (:id %) id) (areas))))
+
+(defn find-plant [id]
+  (first (filter #(= (:id %) id) (plants))))
+
+(defn find-plant-at
+  "Find a plant at the given canvas position."
+  [pos radius-fn]
+  (let [[px py] pos]
+    (first (filter (fn [plant]
+                     (let [[x y] (:position plant)
+                           radius (radius-fn plant)
+                           dx (- px x)
+                           dy (- py y)]
+                       (<= (+ (* dx dx) (* dy dy)) (* radius radius))))
+                   (plants)))))
+
+;; State mutations
+
+(defn set-state! [path value]
+  (swap! app-state assoc-in path value))
+
+(defn update-state! [path f & args]
+  (swap! app-state update-in path #(apply f % args)))
+
+(defn set-viewport-ctx! [ctx]
+  (set-state! [:viewport :ctx] ctx))
+
+(defn set-viewport-size! [width height]
+  (set-state! [:viewport :size] {:width width :height height}))
+
+(defn set-tool! [tool-id]
+  (swap! app-state #(-> %
+                        (assoc-in [:tool :active] tool-id)
+                        (assoc-in [:tool :state] nil))))
+
+(defn set-tool-state! [state]
+  (set-state! [:tool :state] state))
+
+(defn update-tool-state! [f & args]
+  (swap! app-state update-in [:tool :state] #(apply f % args)))
+
+(defn set-cursor! [cursor]
+  (set-state! [:tool :cursor] cursor))
+
+;; Selection mutations
+
+(defn select! [type ids]
+  (swap! app-state assoc :selection {:type type :ids (set ids)}))
+
+(defn clear-selection! []
+  (swap! app-state assoc :selection {:type nil :ids #{}}))
+
+(defn toggle-selection! [type id]
+  (let [current-ids (selected-ids)]
+    (if (contains? current-ids id)
+      (let [new-ids (disj current-ids id)]
+        (if (empty? new-ids)
+          (clear-selection!)
+          (select! type new-ids)))
+      (select! type (conj current-ids id)))))
+
+;; Area mutations
+
+(defn gen-id []
+  (str (random-uuid)))
+
+(defn add-area! [area]
+  (let [area-with-id (if (:id area) area (assoc area :id (gen-id)))]
+    (update-state! [:areas] conj area-with-id)
+    (:id area-with-id)))
+
+(defn update-area! [id updates]
+  (swap! app-state update :areas
+         (fn [areas]
+           (mapv #(if (= (:id %) id) (merge % updates) %) areas))))
+
+(defn remove-area! [id]
+  (swap! app-state update :areas
+         (fn [areas] (filterv #(not= (:id %) id) areas))))
+
+;; Plant mutations
+
+(defn add-plant! [plant]
+  (let [plant-with-id (if (:id plant) plant (assoc plant :id (gen-id)))]
+    (update-state! [:plants] conj plant-with-id)
+    (:id plant-with-id)))
+
+(defn update-plant! [id updates]
+  (swap! app-state update :plants
+         (fn [plants]
+           (mapv #(if (= (:id %) id) (merge % updates) %) plants))))
+
+(defn remove-plant! [id]
+  (swap! app-state update :plants
+         (fn [plants] (filterv #(not= (:id %) id) plants))))
+
+;; Viewport mutations
+
+(defn pan! [dx dy]
+  (update-state! [:viewport :offset]
+                 (fn [[x y]] [(+ x dx) (+ y dy)])))
+
+(defn set-zoom! [new-zoom]
+  (set-state! [:viewport :zoom] (max 0.1 (min 10.0 new-zoom))))
+
+(defn zoom-at!
+  "Zoom centered on screen point."
+  [[sx sy] factor]
+  (let [{:keys [offset zoom]} (viewport)
+        [ox oy] offset
+        ;; Convert screen point to canvas coordinates before zoom
+        cx (/ (- sx ox) zoom)
+        cy (/ (- sy oy) zoom)
+        ;; Calculate new zoom
+        new-zoom (max 0.1 (min 10.0 (* zoom factor)))
+        ;; Adjust offset to keep canvas point stationary
+        new-ox (- sx (* cx new-zoom))
+        new-oy (- sy (* cy new-zoom))]
+    (swap! app-state #(-> %
+                          (assoc-in [:viewport :zoom] new-zoom)
+                          (assoc-in [:viewport :offset] [new-ox new-oy])))))

@@ -1,0 +1,19 @@
+{
+  "name": "garden",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "shadow-cljs watch dev",
+    "repl": "shadow-cljs cljs-repl dev",
+    "build": "shadow-cljs release min",
+    "clean": "rm -rf resources/public/js/compiled"
+  },
+  "devDependencies": {
+    "shadow-cljs": "^2.28.0"
+  },
+  "dependencies": {
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2",
+    "create-react-class": "^15.7.0"
+  }
+}

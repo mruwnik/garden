@@ -1,0 +1,26 @@
+{:source-paths ["src" "dev"]
+
+ :dependencies [[reagent "0.7.0"]
+                [binaryage/devtools "0.9.9"]]
+
+ :dev-http {3449 "resources/public"}
+
+ :nrepl {:port 7888}
+
+ :builds
+ {:dev
+  {:target :browser
+   :output-dir "resources/public/js/compiled"
+   :asset-path "js/compiled"
+   :modules {:garden {:init-fn garden.core/init
+                      :entries [garden.core]}}
+   :devtools {:after-load garden.core/on-js-reload
+              :preloads [devtools.preload]}}
+
+  :min
+  {:target :browser
+   :output-dir "resources/public/js/compiled"
+   :asset-path "js/compiled"
+   :modules {:garden {:init-fn garden.core/init
+                      :entries [garden.core]}}
+   :compiler-options {:optimizations :advanced}}}}
