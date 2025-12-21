@@ -60,6 +60,26 @@ body {
   border-color: #0066ff;
 }
 
+.tool-btn.danger {
+  color: #dc3545;
+  border-color: #dc3545;
+}
+
+.tool-btn.danger:hover {
+  background: #dc3545;
+  color: #fff;
+}
+
+.tool-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tool-btn:disabled:hover {
+  background: #fff;
+  border-color: #ddd;
+}
+
 .toolbar-separator {
   width: 1px;
   height: 24px;

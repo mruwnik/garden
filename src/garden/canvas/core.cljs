@@ -18,11 +18,23 @@
   [state]
   (not= (render-keys state) @last-render-state))
 
+;; Performance tracking
+(defonce ^:private last-render-time (atom 0))
+(defonce ^:private render-times (atom []))
+
+(defn get-avg-render-time
+  "Get average render time in ms (last 30 frames)."
+  []
+  (let [times @render-times]
+    (when (seq times)
+      (/ (reduce + times) (count times)))))
+
 (defn render!
   "Render the current state to the canvas."
   []
   (when-let [ctx (state/canvas-ctx)]
-    (let [state @state/app-state
+    (let [start-time (.now js/performance)
+          state @state/app-state
           {:keys [width height]} (get-in state [:viewport :size])]
 
       ;; Clear canvas
@@ -59,7 +71,16 @@
       (render/render-tooltip! ctx state)
 
       ;; Update last render state
-      (reset! last-render-state (render-keys state)))))
+      (reset! last-render-state (render-keys state))
+
+      ;; Track render time
+      (let [elapsed (- (.now js/performance) start-time)]
+        (reset! last-render-time elapsed)
+        (swap! render-times (fn [times]
+                              (let [new-times (conj times elapsed)]
+                                (if (> (count new-times) 30)
+                                  (vec (rest new-times))
+                                  new-times))))))))
 
 (defn schedule-render!
   "Schedule a render on the next animation frame if needed."

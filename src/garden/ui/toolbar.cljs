@@ -40,6 +40,20 @@
 
    [:div.toolbar-separator]
 
+   ;; Undo/Redo controls
+   [:button.tool-btn
+    {:title "Undo (Ctrl+Z)"
+     :disabled (not (state/can-undo?))
+     :on-click #(state/undo!)}
+    "Undo"]
+   [:button.tool-btn
+    {:title "Redo (Ctrl+Shift+Z)"
+     :disabled (not (state/can-redo?))
+     :on-click #(state/redo!)}
+    "Redo"]
+
+   [:div.toolbar-separator]
+
    ;; Zoom controls
    [:button.tool-btn
     {:title "Zoom In"
@@ -83,4 +97,17 @@
     {:title "Show plant spacing/footprint"
      :class (when (state/get-state :ui :spacing-circles :visible?) "active")
      :on-click #(state/update-state! [:ui :spacing-circles :visible?] not)}
-    "Spacing"]])
+    "Spacing"]
+
+   [:div.toolbar-separator]
+
+   ;; Clear All button
+   [:button.tool-btn.danger
+    {:title "Clear all areas and plants"
+     :on-click #(when (js/confirm "Clear all areas and plants from the garden?")
+                  (doseq [area (state/areas)]
+                    (state/remove-area! (:id area)))
+                  (doseq [plant (state/plants)]
+                    (state/remove-plant! (:id plant)))
+                  (state/clear-selection!))}
+    "Clear All"]])

@@ -7,6 +7,7 @@
 - [x] Missing `remove_plant` tool - Can't move/delete individual plants, LLM had to add duplicate lettuce instead of moving
 - [x] Missing `remove_plants_in_area` tool - Can't clear all plants from a specific area
 - [x] Limited plant species for flowers - Only sunflowers available, no roses/tulips/etc in plant database
+- [x] Add zoom tool
 
 ### REPL
 
@@ -15,6 +16,23 @@
 ### Chat Behavior
 
 - [ ] Clear garden didn't fully work - When asked to "clear and design", old plants remained initially
+
+### UI Issues (from dogfooding)
+
+- [x] Area type dropdown not responding - Can't change area type from "Garden Bed" to other types via UI
+- [x] No "Clear All" button - Reset only resets the view, not the garden content
+- [ ] Mass plant placement is tedious - Need scatter/fill area tool in UI (only available via LLM tools)
+- [x] Paths rendered as thin lines - Should be thicker/more visible areas
+- [x] No undo/redo buttons visible in toolbar
+- [x] Properties panel shows wrong type after programmatic change (shows "Garden Bed" even when area is water)
+
+### Recreating from Reference Map (from dogfooding)
+
+- [ ] No reference image overlay - Can't trace or compare to a reference map
+- [ ] No way to move/reposition existing areas - Once drawn, areas are fixed
+- [ ] No spatial planning grid with measurements - Hard to plan proportions
+- [ ] Initial placement errors are hard to fix - Need to delete and redraw
+- [ ] No "import layout" feature - Would help recreate known gardens
 
 ## Completed
 
@@ -27,3 +45,14 @@
 - [x] Added `add_path` tool - create winding paths from waypoints
 - [x] Added `add_water` tool - create water features (ponds, streams, lakes)
 - [x] Recreated dense Kenroku-en garden with 725 plants using new tools
+- [x] Performance optimization - render time reduced from ~500ms to ~5ms via:
+  - Viewport culling for plants and areas (only render visible items)
+  - Level-of-detail (LOD) for background, areas, plants, and grid
+  - Simplified plant rendering (circles) when zoomed out
+  - Skip textures (soil, stones, wood, grass) when zoomed out
+- [x] Fixed area type dropdown - added "water" option and explicit handler
+- [x] Fixed path rendering - thin paths now rendered as thick strokes, water features have ripple texture
+- [x] Fixed properties panel sync - panel now re-reads area from state on each render
+- [x] Added `set_zoom` and `pan_to` LLM tools - allows assistant to control viewport
+- [x] Added "Clear All" button to toolbar with confirmation dialog
+- [x] Added undo/redo functionality with history tracking (up to 50 states)

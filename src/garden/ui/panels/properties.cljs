@@ -31,31 +31,36 @@
 
 (defn area-properties
   "Properties editor for a selected area."
-  [area]
-  [:div.area-properties
-   [text-input "Name" (:name area)
-    #(state/update-area! (:id area) {:name %})]
+  [area-id]
+  ;; Re-read area from state to ensure we have current values
+  (let [area (state/find-area area-id)]
+    (when area
+      [:div.area-properties
+       [text-input "Name" (:name area)
+        #(state/update-area! area-id {:name %})]
 
-   [:div.form-field
-    [:label "Color"]
-    [color-input (:color area)
-     #(state/update-area! (:id area) {:color %})]]
+       [:div.form-field
+        [:label "Color"]
+        [color-input (:color area)
+         #(state/update-area! area-id {:color %})]]
 
-   [:div.form-field
-    [:label "Type"]
-    [:select.select-input
-     {:value (name (or (:type area) :bed))
-      :on-change #(state/update-area! (:id area)
-                                      {:type (keyword (-> % .-target .-value))})}
-     [:option {:value "bed"} "Garden Bed"]
-     [:option {:value "path"} "Path"]
-     [:option {:value "structure"} "Structure"]]]
+       [:div.form-field
+        [:label "Type"]
+        [:select.select-input
+         {:value (name (or (:type area) :bed))
+          :on-change (fn [e]
+                       (let [new-type (keyword (-> e .-target .-value))]
+                         (state/update-area! area-id {:type new-type})))}
+         [:option {:value "bed"} "Garden Bed"]
+         [:option {:value "path"} "Path"]
+         [:option {:value "water"} "Water"]
+         [:option {:value "structure"} "Structure"]]]
 
-   [textarea-input "Notes" (:notes area)
-    #(state/update-area! (:id area) {:notes %})]
+       [textarea-input "Notes" (:notes area)
+        #(state/update-area! area-id {:notes %})]
 
-   [:div.form-info
-    [:span (str (count (:points area)) " points")]]])
+       [:div.form-info
+        [:span (str (count (:points area)) " points")]]])))
 
 (defn plant-properties
   "Properties editor for a selected plant."
@@ -132,8 +137,7 @@
 
        ;; Single area selected
        (= selection-type :area)
-       (when-let [area (state/find-area (first selected-ids))]
-         [area-properties area])
+       [area-properties (first selected-ids)]
 
        ;; Single plant selected
        (= selection-type :plant)

@@ -1,11 +1,12 @@
 (ns garden.canvas.render
   (:require [garden.state :as state]
+            [garden.canvas.viewport :as viewport]
             [garden.ui.panels.library :as library]))
 
 ;; Background rendering
 
 (defn render-background!
-  "Render a grass/soil background texture."
+  "Render a grass/soil background texture with aggressive LOD optimization."
   [ctx state]
   (let [{:keys [offset zoom]} (:viewport state)
         [ox oy] offset
@@ -14,29 +15,31 @@
         start-x (/ (- ox) zoom)
         start-y (/ (- oy) zoom)
         end-x (/ (- width ox) zoom)
-        end-y (/ (- height oy) zoom)
-        ;; Grass texture spacing
-        spacing 25]
-    ;; Base grass green color
+        end-y (/ (- height oy) zoom)]
+    ;; Base grass green color - always draw this
     (set! (.-fillStyle ctx) "#90A955")
     (.fillRect ctx start-x start-y (- end-x start-x) (- end-y start-y))
-    ;; Add subtle grass texture with dots and small strokes
-    (set! (.-fillStyle ctx) "rgba(120, 150, 80, 0.3)")
-    (doseq [x (range (- start-x spacing) end-x spacing)
-            y (range (- start-y spacing) end-y spacing)]
-      (let [offset-x (* 5 (Math/sin (+ x y)))
-            offset-y (* 5 (Math/cos (* x 0.5)))]
-        (.beginPath ctx)
-        (.arc ctx (+ x offset-x) (+ y offset-y) 2 0 (* 2 Math/PI))
-        (.fill ctx)))
-    ;; Add darker grass patches
-    (set! (.-fillStyle ctx) "rgba(70, 100, 50, 0.15)")
-    (doseq [x (range (- start-x 50) end-x 50)
-            y (range (- start-y 50) end-y 50)]
-      (let [size (+ 10 (* 10 (Math/abs (Math/sin (* x y 0.001)))))]
-        (.beginPath ctx)
-        (.arc ctx x y size 0 (* 2 Math/PI))
-        (.fill ctx)))))
+    ;; Only draw texture details when zoomed in enough (> 0.3 = fairly close)
+    (when (> zoom 0.3)
+      (let [base-spacing 25
+            patch-spacing 50]
+        ;; Add subtle grass texture with dots
+        (set! (.-fillStyle ctx) "rgba(120, 150, 80, 0.3)")
+        (doseq [x (range (- start-x base-spacing) end-x base-spacing)
+                y (range (- start-y base-spacing) end-y base-spacing)]
+          (let [offset-x (* 5 (Math/sin (+ x y)))
+                offset-y (* 5 (Math/cos (* x 0.5)))]
+            (.beginPath ctx)
+            (.arc ctx (+ x offset-x) (+ y offset-y) 2 0 (* 2 Math/PI))
+            (.fill ctx)))
+        ;; Add darker grass patches
+        (set! (.-fillStyle ctx) "rgba(70, 100, 50, 0.15)")
+        (doseq [x (range (- start-x patch-spacing) end-x patch-spacing)
+                y (range (- start-y patch-spacing) end-y patch-spacing)]
+          (let [size (+ 10 (* 10 (Math/abs (Math/sin (* x y 0.001)))))]
+            (.beginPath ctx)
+            (.arc ctx x y size 0 (* 2 Math/PI))
+            (.fill ctx)))))))
 
 (defn- draw-polygon!
   "Draw a filled polygon."
@@ -232,44 +235,148 @@
         (.stroke ctx))
       (.restore ctx))))
 
+(defn- path-is-thin?
+  "Check if a path polygon is thin (linear) and needs stroke rendering."
+  [points]
+  (when (>= (count points) 2)
+    (let [xs (map first points)
+          ys (map second points)
+          width (- (apply max xs) (apply min xs))
+          height (- (apply max ys) (apply min ys))
+          ;; Consider thin if one dimension is much smaller than the other
+          min-dim (min width height)
+          max-dim (max width height)]
+      (or (< min-dim 50)  ; Less than 50cm width
+          (and (pos? max-dim) (< (/ min-dim max-dim) 0.1))))))
+
+(defn- draw-path-as-stroke!
+  "Draw a thin path as a thick stroke along its centerline."
+  [ctx points color width zoom]
+  (when (seq points)
+    (.beginPath ctx)
+    (let [[x y] (first points)]
+      (.moveTo ctx x y))
+    (doseq [[x y] (rest points)]
+      (.lineTo ctx x y))
+    (set! (.-strokeStyle ctx) color)
+    (set! (.-lineWidth ctx) (max (/ 60 1) width))  ; Minimum 60cm wide path
+    (set! (.-lineCap ctx) "round")
+    (set! (.-lineJoin ctx) "round")
+    (.stroke ctx)))
+
+(defn- draw-water-texture!
+  "Draw water ripple effects."
+  [ctx points]
+  (when (seq points)
+    (let [xs (map first points)
+          ys (map second points)
+          min-x (apply min xs)
+          max-x (apply max xs)
+          min-y (apply min ys)
+          max-y (apply max ys)
+          cx (/ (+ min-x max-x) 2)
+          cy (/ (+ min-y max-y) 2)]
+      (clip-to-polygon! ctx points)
+      ;; Ripple circles
+      (set! (.-strokeStyle ctx) "rgba(255,255,255,0.2)")
+      (set! (.-lineWidth ctx) 2)
+      (doseq [r (range 20 (max (- max-x min-x) (- max-y min-y)) 40)]
+        (.beginPath ctx)
+        (.arc ctx cx cy r 0 (* 2 Math/PI))
+        (.stroke ctx))
+      ;; Light shimmer
+      (set! (.-fillStyle ctx) "rgba(255,255,255,0.1)")
+      (doseq [x (range min-x max-x 60)
+              y (range min-y max-y 60)]
+        (when (< (rand) 0.3)
+          (.beginPath ctx)
+          (.ellipse ctx x y 8 4 (* x 0.01) 0 (* 2 Math/PI))
+          (.fill ctx)))
+      (.restore ctx))))
+
 (defn- render-area!
-  "Render a single area with type-specific styling."
+  "Render a single area with type-specific styling and aggressive LOD."
   [ctx area zoom]
   (let [points (:points area)
         area-type (or (:type area) :bed)
         color (or (:color area)
                   (case area-type
                     :bed "#8B6914"
-                    :path "#9E9E9E"
+                    :path "#d4a574"
+                    :water "#4a90d9"
                     :structure "#607D8B"
-                    "#8B4513"))]
-    ;; Base fill
-    (draw-polygon! ctx points color)
-    ;; Type-specific textures and decorations
-    (case area-type
-      :bed
-      (draw-soil-texture! ctx points)
+                    "#8B4513"))
+        ;; Only show detailed textures when fairly zoomed in (> 0.25)
+        show-textures? (> zoom 0.25)]
 
+    (case area-type
       :path
-      (draw-stone-path-texture! ctx points)
+      ;; Special handling for paths - ensure they're visible
+      (if (path-is-thin? points)
+        ;; Thin path: render as thick stroke
+        (draw-path-as-stroke! ctx points color 80 zoom)
+        ;; Wide path polygon: render normally with texture
+        (do
+          (draw-polygon! ctx points color)
+          (when show-textures?
+            (draw-stone-path-texture! ctx points))
+          (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 2 zoom))))
+
+      :water
+      (do
+        (draw-polygon! ctx points color)
+        (when show-textures?
+          (draw-water-texture! ctx points))
+        (draw-polygon-outline! ctx points "rgba(0,50,100,0.5)" (/ 2 zoom)))
+
+      :bed
+      (do
+        (draw-polygon! ctx points color)
+        (when show-textures?
+          (draw-soil-texture! ctx points))
+        (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 1 zoom)))
 
       :structure
       (do
-        (draw-wood-texture! ctx points)
-        ;; Solid border for structures
-        (draw-polygon-outline! ctx points "rgba(0,0,0,0.5)" (/ 3 zoom)))
+        (draw-polygon! ctx points color)
+        (when show-textures?
+          (draw-wood-texture! ctx points)
+          (draw-polygon-outline! ctx points "rgba(0,0,0,0.5)" (/ 3 zoom)))
+        (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 1 zoom)))
 
-      ;; Default: just the fill
-      nil)
-    ;; Common outline
-    (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 1 zoom))))
+      ;; Default
+      (do
+        (draw-polygon! ctx points color)
+        (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 1 zoom))))))
+
+(defn- area-in-view?
+  "Check if an area intersects the visible viewport bounds."
+  [area bounds]
+  (let [points (:points area)
+        {:keys [min max]} bounds
+        [min-x min-y] min
+        [max-x max-y] max
+        ;; Get area bounding box
+        xs (map first points)
+        ys (map second points)
+        area-min-x (apply cljs.core/min xs)
+        area-max-x (apply cljs.core/max xs)
+        area-min-y (apply cljs.core/min ys)
+        area-max-y (apply cljs.core/max ys)]
+    ;; Check if bounding boxes overlap
+    (and (<= area-min-x max-x)
+         (>= area-max-x min-x)
+         (<= area-min-y max-y)
+         (>= area-max-y min-y))))
 
 (defn render-areas!
-  "Render all areas (beds, paths, structures)."
+  "Render all areas (beds, paths, structures) with viewport culling."
   [ctx state]
   (let [zoom (get-in state [:viewport :zoom])
-        areas (:areas state)]
-    (doseq [area areas]
+        areas (:areas state)
+        bounds (viewport/visible-bounds)
+        visible-areas (filter #(area-in-view? % bounds) areas)]
+    (doseq [area visible-areas]
       (render-area! ctx area zoom))))
 
 ;; Plant rendering
@@ -545,19 +652,52 @@
     (set! (.-fillStyle ctx) "rgba(100, 100, 100, 0.05)")
     (.fill ctx)))
 
+(defn- plant-in-view?
+  "Check if a plant is within the visible viewport bounds."
+  [plant bounds]
+  (let [[px py] (:position plant)
+        {:keys [min max]} bounds
+        [min-x min-y] min
+        [max-x max-y] max
+        ;; Add margin for plant radius (use a generous estimate)
+        margin 300]
+    (and (>= px (- min-x margin))
+         (<= px (+ max-x margin))
+         (>= py (- min-y margin))
+         (<= py (+ max-y margin)))))
+
+(defn- render-plant-simple!
+  "Render a simplified plant (just a colored circle) for low zoom levels."
+  [ctx plant]
+  (let [plant-data (get-plant-data (:species-id plant))
+        [x y] (:position plant)
+        radius (plant-radius plant)
+        color (or (:color plant-data) (:color plant) "#228B22")]
+    (draw-circle! ctx x y radius color)))
+
 (defn render-plants!
-  "Render all plants."
+  "Render all plants with viewport culling and LOD."
   [ctx state]
   (let [plants (:plants state)
         zoom (get-in state [:viewport :zoom])
-        show-spacing? (get-in state [:ui :spacing-circles :visible?])]
-    ;; Draw spacing circles first (behind plants)
-    (when show-spacing?
-      (doseq [plant plants]
+        show-spacing? (get-in state [:ui :spacing-circles :visible?])
+        bounds (viewport/visible-bounds)
+        ;; Filter to only visible plants
+        visible-plants (filter #(plant-in-view? % bounds) plants)
+        ;; Use simplified rendering when zoomed out (< 0.2 = seeing large area)
+        use-simple-render? (< zoom 0.2)]
+    ;; Draw spacing circles first (behind plants) - skip when zoomed out
+    (when (and show-spacing? (>= zoom 0.15))
+      (doseq [plant visible-plants]
         (render-spacing-circle! ctx plant zoom)))
     ;; Draw plants on top
-    (doseq [plant plants]
-      (render-plant! ctx plant zoom))))
+    (if use-simple-render?
+      ;; Simple circles when zoomed out
+      (doseq [plant visible-plants]
+        (render-plant-simple! ctx plant))
+      ;; Full detail rendering when zoomed in
+      (doseq [plant visible-plants]
+        (render-plant! ctx plant zoom)))))
 
 ;; Selection rendering
 

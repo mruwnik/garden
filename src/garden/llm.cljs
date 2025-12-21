@@ -188,7 +188,29 @@
                        :properties {:x {:type "number"} :y {:type "number"}}
                        :required ["x" "y"]}
                :description "Array of {x, y} points defining the water boundary"}}
-     :required ["name" "points"]}}])
+     :required ["name" "points"]}}
+
+   {:name "set_zoom"
+    :description "Set the viewport zoom level. Use this to zoom in/out to see the garden at different scales."
+    :input_schema
+    {:type "object"
+     :properties
+     {:zoom_percent {:type "number"
+                     :description "Zoom percentage (1-1000). 100 = 100% (normal), 50 = zoomed out to see more, 200 = zoomed in 2x. Min 1%, max 1000%."}
+      :center_x {:type "number"
+                 :description "Optional: X coordinate in garden coordinates to center the view on"}
+      :center_y {:type "number"
+                 :description "Optional: Y coordinate in garden coordinates to center the view on"}}
+     :required ["zoom_percent"]}}
+
+   {:name "pan_to"
+    :description "Pan the viewport to center on specific garden coordinates."
+    :input_schema
+    {:type "object"
+     :properties
+     {:x {:type "number" :description "X coordinate in garden coordinates to center on"}
+      :y {:type "number" :description "Y coordinate in garden coordinates to center on"}}
+     :required ["x" "y"]}}])
 
 ;; ============================================
 ;; Tool Execution
@@ -357,6 +379,36 @@
      :message (str "Created water feature '" name "' with " (clojure.core/count points) " vertices")
      :area_id area-id}))
 
+(defn- execute-set-zoom [{:keys [zoom_percent center_x center_y]}]
+  (let [;; Convert percentage to zoom factor (100% = 1.0)
+        zoom-factor (/ zoom_percent 100.0)
+        ;; Clamp to valid range (1% to 1000%)
+        clamped-zoom (max 0.01 (min 10.0 zoom-factor))
+        {:keys [size]} (state/viewport)
+        {:keys [width height]} size]
+    ;; Set the zoom
+    (state/set-zoom! clamped-zoom)
+    ;; If center coordinates provided, pan to center on them
+    (when (and center_x center_y)
+      (let [;; Calculate offset to center the view on the given coordinates
+            new-ox (- (/ width 2) (* center_x clamped-zoom))
+            new-oy (- (/ height 2) (* center_y clamped-zoom))]
+        (state/set-state! [:viewport :offset] [new-ox new-oy])))
+    {:success true
+     :message (str "Set zoom to " (int (* clamped-zoom 100)) "%"
+                   (when (and center_x center_y)
+                     (str " centered on (" (int center_x) ", " (int center_y) ")")))}))
+
+(defn- execute-pan-to [{:keys [x y]}]
+  (let [{:keys [zoom size]} (state/viewport)
+        {:keys [width height]} size
+        ;; Calculate offset to center the view on the given coordinates
+        new-ox (- (/ width 2) (* x zoom))
+        new-oy (- (/ height 2) (* y zoom))]
+    (state/set-state! [:viewport :offset] [new-ox new-oy])
+    {:success true
+     :message (str "Panned to center on (" (int x) ", " (int y) ")")}))
+
 (defn- execute-get-garden-state [_]
   {:areas (mapv (fn [a] {:name (:name a)
                          :type (:type a)
@@ -396,6 +448,8 @@
       "scatter_plants" (execute-scatter-plants tool-input)
       "add_path" (execute-add-path tool-input)
       "add_water" (execute-add-water tool-input)
+      "set_zoom" (execute-set-zoom tool-input)
+      "pan_to" (execute-pan-to tool-input)
       {:success false :message (str "Unknown tool: " tool-name)})
     (catch :default e
       {:success false :message (str "Tool error: " (.-message e))})))

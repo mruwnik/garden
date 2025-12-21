@@ -144,38 +144,96 @@
           (select! type new-ids)))
       (select! type (conj current-ids id)))))
 
+;; History/Undo helpers
+
+(def max-history-size 50)
+
+(defn- save-history!
+  "Save current areas/plants state to history before a mutation."
+  []
+  (let [current {:areas (:areas @app-state)
+                 :plants (:plants @app-state)}
+        past (get-in @app-state [:history :past])]
+    (swap! app-state
+           #(-> %
+                (assoc-in [:history :past]
+                          (vec (take-last max-history-size (conj past current))))
+                (assoc-in [:history :future] [])))))
+
+(defn can-undo? []
+  (seq (get-in @app-state [:history :past])))
+
+(defn can-redo? []
+  (seq (get-in @app-state [:history :future])))
+
+(defn undo!
+  "Restore previous state from history."
+  []
+  (when (can-undo?)
+    (let [current {:areas (:areas @app-state)
+                   :plants (:plants @app-state)}
+          past (get-in @app-state [:history :past])
+          previous (peek past)]
+      (swap! app-state
+             #(-> %
+                  (assoc :areas (:areas previous))
+                  (assoc :plants (:plants previous))
+                  (assoc-in [:history :past] (pop past))
+                  (update-in [:history :future] conj current))))))
+
+(defn redo!
+  "Restore next state from future history."
+  []
+  (when (can-redo?)
+    (let [current {:areas (:areas @app-state)
+                   :plants (:plants @app-state)}
+          future-states (get-in @app-state [:history :future])
+          next-state (peek future-states)]
+      (swap! app-state
+             #(-> %
+                  (assoc :areas (:areas next-state))
+                  (assoc :plants (:plants next-state))
+                  (assoc-in [:history :future] (pop future-states))
+                  (update-in [:history :past] conj current))))))
+
 ;; Area mutations
 
 (defn gen-id []
   (str (random-uuid)))
 
 (defn add-area! [area]
+  (save-history!)
   (let [area-with-id (if (:id area) area (assoc area :id (gen-id)))]
     (update-state! [:areas] conj area-with-id)
     (:id area-with-id)))
 
 (defn update-area! [id updates]
+  (save-history!)
   (swap! app-state update :areas
          (fn [areas]
            (mapv #(if (= (:id %) id) (merge % updates) %) areas))))
 
 (defn remove-area! [id]
+  (save-history!)
   (swap! app-state update :areas
          (fn [areas] (filterv #(not= (:id %) id) areas))))
 
 ;; Plant mutations
 
 (defn add-plant! [plant]
+  (save-history!)
   (let [plant-with-id (if (:id plant) plant (assoc plant :id (gen-id)))]
     (update-state! [:plants] conj plant-with-id)
     (:id plant-with-id)))
 
 (defn update-plant! [id updates]
+  (save-history!)
   (swap! app-state update :plants
          (fn [plants]
            (mapv #(if (= (:id %) id) (merge % updates) %) plants))))
 
 (defn remove-plant! [id]
+  (save-history!)
   (swap! app-state update :plants
          (fn [plants] (filterv #(not= (:id %) id) plants))))
 
@@ -186,7 +244,7 @@
                  (fn [[x y]] [(+ x dx) (+ y dy)])))
 
 (defn set-zoom! [new-zoom]
-  (set-state! [:viewport :zoom] (max 0.1 (min 10.0 new-zoom))))
+  (set-state! [:viewport :zoom] (max 0.01 (min 10.0 new-zoom))))
 
 (defn zoom-at!
   "Zoom centered on screen point."
@@ -196,8 +254,8 @@
         ;; Convert screen point to canvas coordinates before zoom
         cx (/ (- sx ox) zoom)
         cy (/ (- sy oy) zoom)
-        ;; Calculate new zoom
-        new-zoom (max 0.1 (min 10.0 (* zoom factor)))
+        ;; Calculate new zoom (min 0.01 = 1%, max 10 = 1000%)
+        new-zoom (max 0.01 (min 10.0 (* zoom factor)))
         ;; Adjust offset to keep canvas point stationary
         new-ox (- sx (* cx new-zoom))
         new-oy (- sy (* cy new-zoom))]
