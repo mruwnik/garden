@@ -11,3 +11,9 @@ pom.xml
 .lein-plugins/
 .repl
 .nrepl-port
+
+.claude/
+.clj-kondo/
+.lsp/
+.shadow-cljs/
+node_modules/
