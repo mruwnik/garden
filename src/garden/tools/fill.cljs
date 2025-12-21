@@ -37,14 +37,20 @@
     [(int img-x) (int img-y)]))
 
 (defn- canvas->image-point
-  "Convert a canvas point to image coordinates (inverse of image->canvas-coord)."
+  "Convert a canvas point to image coordinates.
+   Position is the image CENTER in canvas coordinates."
   [[cx cy] ref-img]
-  (let [{:keys [position bar-meters]} ref-img
-        [px py] position
+  (let [{:keys [image position bar-meters]} ref-img
+        [center-x center-y] (or position [0 0])
         bar-px 150
-        scale (/ (* (or bar-meters 50) 100) bar-px)]
-    [(/ (- cx px) scale)
-     (/ (- cy py) scale)]))
+        scale (/ (* (or bar-meters 50) 100) bar-px)
+        ;; Calculate top-left from center
+        img-w (.-width image)
+        img-h (.-height image)
+        top-left-x (- center-x (/ (* img-w scale) 2))
+        top-left-y (- center-y (/ (* img-h scale) 2))]
+    [(/ (- cx top-left-x) scale)
+     (/ (- cy top-left-y) scale)]))
 
 (defn- create-exclusion-mask
   "Pre-render existing areas to a canvas for fast O(1) exclusion checks.
@@ -225,15 +231,21 @@
         simplified))))
 
 (defn- image->canvas-coords
-  "Convert image coordinates to canvas coordinates."
+  "Convert image coordinates to canvas coordinates.
+   Position is the image CENTER in canvas coordinates."
   [img-points ref-img]
-  (let [{:keys [position bar-meters]} ref-img
-        [px py] position
+  (let [{:keys [image position bar-meters]} ref-img
+        [center-x center-y] (or position [0 0])
         bar-px 150
-        scale (/ (* (or bar-meters 50) 100) bar-px)]
+        scale (/ (* (or bar-meters 50) 100) bar-px)
+        ;; Calculate top-left from center
+        img-w (.-width image)
+        img-h (.-height image)
+        top-left-x (- center-x (/ (* img-w scale) 2))
+        top-left-y (- center-y (/ (* img-h scale) 2))]
     (mapv (fn [[ix iy]]
-            [(+ px (* ix scale))
-             (+ py (* iy scale))])
+            [(+ top-left-x (* ix scale))
+             (+ top-left-y (* iy scale))])
           img-points)))
 
 (defn- do-fill!

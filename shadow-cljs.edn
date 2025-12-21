@@ -1,4 +1,4 @@
-{:source-paths ["src" "dev"]
+{:source-paths ["src" "dev" "test"]
 
  :dependencies [[reagent "0.7.0"]
                 [binaryage/devtools "0.9.9"]]
@@ -23,4 +23,18 @@
    :asset-path "js/compiled"
    :modules {:garden {:init-fn garden.core/init
                       :entries [garden.core]}}
-   :compiler-options {:optimizations :advanced}}}}
+   :compiler-options {:optimizations :advanced}}
+
+  ;; Fast unit tests (Node.js)
+  :test
+  {:target :node-script
+   :output-to "target/test/node-tests.js"
+   :main garden.test-runner/run}
+
+  ;; Browser tests for canvas/DOM code
+  :browser-test
+  {:target :browser-test
+   :test-dir "resources/public/js/test"
+   :ns-regexp "-test$"
+   :devtools {:http-port 8021
+              :http-root "resources/public"}}}}
