@@ -12,13 +12,9 @@
                     (fn []
                       (state/set-state! [:ui :reference-image :url] data-url)
                       (state/set-state! [:ui :reference-image :image] img)
-                      ;; Set initial scale to fit 50m
-                      (let [img-w (.-width img)
-                            img-h (.-height img)
-                            max-dim (max img-w img-h)
-                            scale (/ 5000 max-dim)]  ; 50m = 5000cm
-                        (state/set-state! [:ui :reference-image :scale] scale)
-                        (state/set-state! [:ui :reference-image :visible?] true))))
+                      ;; Position [0,0] means image center at grid origin
+                      (state/set-state! [:ui :reference-image :position] [0 0])
+                      (state/set-state! [:ui :reference-image :visible?] true)))
               (set! (.-src img) data-url))))
     (.readAsDataURL reader file)))
 
@@ -114,9 +110,9 @@
                                            (/ (js/parseInt (.. % -target -value)) 100))}]
            [:span {:style {:min-width "40px"}} (str (int (* 100 (or opacity 0.5))) "%")]]]
 
-         ;; Position (display in meters, store in cm)
+         ;; Position = image center offset from grid origin (display in meters, store in cm)
          [:div.form-field
-          [:label "Position (meters from origin)"]
+          [:label "Center offset (meters from origin)"]
           [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
            [:span "X:"]
            [:input.text-input

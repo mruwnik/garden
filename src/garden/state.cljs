@@ -234,6 +234,14 @@
     (update-state! [:plants] conj plant-with-id)
     (:id plant-with-id)))
 
+(defn add-plants-batch!
+  "Add multiple plants in a single undo-able operation."
+  [plants]
+  (save-history!)
+  (let [plants-with-ids (mapv #(if (:id %) % (assoc % :id (gen-id))) plants)]
+    (swap! app-state update :plants into plants-with-ids)
+    (mapv :id plants-with-ids)))
+
 (defn update-plant! [id updates]
   (save-history!)
   (swap! app-state update :plants
@@ -283,24 +291,18 @@
                   img (js/Image.)]
               (set! (.-onload img)
                     (fn []
-                      ;; Calculate scale to fit image within garden (max 40m = 4000cm)
-                      (let [max-size 4000
+                      ;; Calculate scale based on bar-meters setting
+                      ;; Default: 150 image pixels = 50 meters = 5000 cm
+                      (let [bar-meters (get-state :ui :reference-image :bar-meters)
+                            bar-px 150
+                            scale (/ (* (or bar-meters 50) 100) bar-px)
                             img-w (.-width img)
                             img-h (.-height img)
-                            scale (min (/ max-size img-w) (/ max-size img-h) 10)
-                            ;; Center image on current viewport
-                            {:keys [offset zoom size]} (viewport)
-                            [ox oy] offset
-                            vw (:width size)
-                            vh (:height size)
-                            ;; Calculate center of visible area in garden coords
-                            center-x (/ (- (/ vw 2) ox) zoom)
-                            center-y (/ (- (/ vh 2) oy) zoom)
-                            ;; Position image so its center is at viewport center
+                            ;; Position image centered at grid origin (0,0)
                             img-canvas-w (* img-w scale)
                             img-canvas-h (* img-h scale)
-                            pos-x (- center-x (/ img-canvas-w 2))
-                            pos-y (- center-y (/ img-canvas-h 2))]
+                            pos-x (- (/ img-canvas-w 2))
+                            pos-y (- (/ img-canvas-h 2))]
                         (set-state! [:ui :reference-image :url] data-url)
                         (set-state! [:ui :reference-image :image] img)
                         (set-state! [:ui :reference-image :scale] scale)

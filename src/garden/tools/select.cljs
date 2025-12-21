@@ -102,13 +102,15 @@
           plant (find-plant-at point)
           area (find-area-at point)]
       (cond
-        ;; Clicked on a vertex handle - start dragging that vertex
+        ;; Clicked on a vertex handle - select it and start dragging
         vertex-hit
         (state/set-tool-state! {:dragging? true
                                 :drag-start point
                                 :drag-type :vertex
                                 :vertex-area-id (:area-id vertex-hit)
-                                :vertex-index (:vertex-index vertex-hit)})
+                                :vertex-index (:vertex-index vertex-hit)
+                                ;; Keep track of selected vertex for deletion
+                                :selected-vertex vertex-hit})
 
         ;; Double-click on edge to insert a new point
         edge-hit
@@ -134,7 +136,8 @@
           (state/set-tool-state! {:dragging? true
                                   :drag-start point
                                   :drag-type :plant
-                                  :drag-ids #{(:id plant)}}))
+                                  :drag-ids #{(:id plant)}
+                                  :selected-vertex nil}))
 
         ;; Clicked on an area
         area
@@ -145,11 +148,14 @@
           (state/set-tool-state! {:dragging? true
                                   :drag-start point
                                   :drag-type :area
-                                  :drag-ids #{(:id area)}}))
+                                  :drag-ids #{(:id area)}
+                                  :selected-vertex nil}))
 
         ;; Clicked on nothing
         :else
-        (state/clear-selection!))))
+        (do
+          (state/clear-selection!)
+          (state/update-tool-state! dissoc :selected-vertex)))))
 
   (on-mouse-move [_ point _event]
     (let [tool-state (state/tool-state)]
@@ -218,15 +224,20 @@
     (case (.-key event)
       ("Backspace" "Delete")
       (let [tool-state (state/tool-state)
-            hover-vertex (:hover-vertex tool-state)]
-        (if hover-vertex
-          ;; Delete the hovered vertex (if area has more than 3 points)
-          (when-let [area (state/find-area (:area-id hover-vertex))]
+            ;; Check for selected vertex first, then hovered vertex
+            target-vertex (or (:selected-vertex tool-state)
+                              (:hover-vertex tool-state))]
+        (if target-vertex
+          ;; Delete the vertex (if area has more than 3 points)
+          (when-let [area (state/find-area (:area-id target-vertex))]
             (when (> (count (:points area)) 3)
-              (let [new-points (vec (concat
-                                     (take (:vertex-index hover-vertex) (:points area))
-                                     (drop (inc (:vertex-index hover-vertex)) (:points area))))]
-                (state/update-area! (:area-id hover-vertex) {:points new-points}))))
+              (let [vertex-idx (:vertex-index target-vertex)
+                    new-points (vec (concat
+                                     (take vertex-idx (:points area))
+                                     (drop (inc vertex-idx) (:points area))))]
+                (state/update-area! (:area-id target-vertex) {:points new-points})
+                ;; Clear the selected vertex
+                (state/update-tool-state! dissoc :selected-vertex))))
           ;; Delete selected items
           (let [selection (state/selection)]
             (case (:type selection)

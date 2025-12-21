@@ -76,14 +76,15 @@
           drag-start (:drag-start tool-state)
           species-id (or (:species-id tool-state) "generic")]
       (when (and (= mode :row) drag-start)
-        ;; Place all plants in the row
+        ;; Place all plants in the row as a batch (single undo operation)
         (let [positions (calculate-row-positions drag-start point default-spacing)
-              plant-ids (doall
-                         (for [pos positions]
-                           (state/add-plant! {:species-id species-id
-                                              :position pos
-                                              :planted-date (js/Date.)
-                                              :source :seedling})))]
+              plants (mapv (fn [pos]
+                             {:species-id species-id
+                              :position pos
+                              :planted-date (js/Date.)
+                              :source :seedling})
+                           positions)
+              plant-ids (state/add-plants-batch! plants)]
           (state/select! :plant (set plant-ids))))
       ;; Clear drag state
       (state/update-tool-state! assoc :drag-start nil :row-preview nil)))

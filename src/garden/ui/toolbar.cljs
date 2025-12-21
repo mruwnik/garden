@@ -4,39 +4,23 @@
 
 (defn tool-button
   "A single tool button."
-  [tool]
-  (let [id (tools/tool-id tool)
-        label (tools/tool-label tool)
-        active? (= id (state/active-tool))]
-    [:button.tool-btn
-     {:class (when active? "active")
-      :title label
-      :on-click #(tools/activate-tool! id)}
-     label]))
-
-(defn- plant-mode-toggle
-  "Toggle button for plant mode (single/row)."
-  []
-  (let [tool-state (state/tool-state)
-        current-mode (or (:mode tool-state) :single)
-        is-row? (= current-mode :row)]
-    [:button.tool-btn.mode-toggle
-     {:class (when is-row? "active")
-      :title (if is-row? "Row mode (press R)" "Single mode (press R)")
-      :on-click #(state/update-tool-state! assoc :mode (if is-row? :single :row))}
-     (if is-row? "Row" "Single")]))
+  [tool-id]
+  (when-let [tool (tools/get-tool tool-id)]
+    (let [label (tools/tool-label tool)
+          active? (= tool-id (state/active-tool))]
+      [:button.tool-btn
+       {:class (when active? "active")
+        :title label
+        :on-click #(tools/activate-tool! tool-id)}
+       label])))
 
 (defn toolbar
   "The main toolbar component."
   []
   [:div.toolbar
-   (for [tool (tools/all-tools)]
-     ^{:key (tools/tool-id tool)}
-     [tool-button tool])
-
-   ;; Show plant mode toggle when Plant tool is active
-   (when (= :plant (state/active-tool))
-     [plant-mode-toggle])
+   ;; Only show navigation tools (Select, Pan) in top toolbar
+   [tool-button :select]
+   [tool-button :pan]
 
    [:div.toolbar-separator]
 
@@ -128,4 +112,18 @@
                   (doseq [plant (state/plants)]
                     (state/remove-plant! (:id plant)))
                   (state/clear-selection!))}
-    "Clear All"]])
+    "Clear All"]
+
+   [:div.toolbar-spacer]
+
+   ;; Panel toggles (right-aligned)
+   [:button.tool-btn
+    {:title "Toggle Plants panel"
+     :class (when (state/get-state :ui :panels :left :open?) "active")
+     :on-click #(state/update-state! [:ui :panels :left :open?] not)}
+    "Plants"]
+   [:button.tool-btn
+    {:title "Toggle Properties panel"
+     :class (when (state/get-state :ui :panels :right :open?) "active")
+     :on-click #(state/update-state! [:ui :panels :right :open?] not)}
+    "Props"]])

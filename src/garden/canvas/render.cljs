@@ -296,7 +296,7 @@
 
 (defn- render-area!
   "Render a single area with type-specific styling and aggressive LOD."
-  [ctx area zoom]
+  [ctx area zoom ref-visible?]
   (let [points (:points area)
         area-type (or (:type area) :bed)
         color (or (:color area)
@@ -307,7 +307,13 @@
                     :structure "#607D8B"
                     "#8B4513"))
         ;; Only show detailed textures when fairly zoomed in (> 0.25)
-        show-textures? (> zoom 0.25)]
+        show-textures? (> zoom 0.25)
+        ;; Make areas semi-transparent when reference image is visible
+        area-opacity (if ref-visible? 0.6 1.0)]
+
+    ;; Set opacity for the whole area rendering
+    (.save ctx)
+    (set! (.-globalAlpha ctx) area-opacity)
 
     (case area-type
       :path
@@ -347,7 +353,10 @@
       ;; Default
       (do
         (draw-polygon! ctx points color)
-        (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 1 zoom))))))
+        (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 1 zoom))))
+
+    ;; Restore opacity
+    (.restore ctx)))
 
 (defn- area-in-view?
   "Check if an area intersects the visible viewport bounds."
@@ -369,15 +378,34 @@
          (<= area-min-y max-y)
          (>= area-max-y min-y))))
 
+(defn- polygon-area
+  "Calculate the area of a polygon using the shoelace formula."
+  [points]
+  (let [n (count points)]
+    (if (< n 3)
+      0
+      (/ (Math/abs
+          (reduce + (for [i (range n)]
+                      (let [[x1 y1] (nth points i)
+                            [x2 y2] (nth points (mod (inc i) n))]
+                        (- (* x1 y2) (* x2 y1))))))
+         2))))
+
 (defn render-areas!
-  "Render all areas (beds, paths, structures) with viewport culling."
+  "Render all areas (beds, paths, structures) with viewport culling.
+   Smaller areas render on top of larger ones (for islands in ponds, etc)."
   [ctx state]
   (let [zoom (get-in state [:viewport :zoom])
         areas (:areas state)
         bounds (viewport/visible-bounds)
-        visible-areas (filter #(area-in-view? % bounds) areas)]
-    (doseq [area visible-areas]
-      (render-area! ctx area zoom))))
+        visible-areas (filter #(area-in-view? % bounds) areas)
+        ;; Sort by size descending - larger areas first, smaller on top
+        sorted-areas (sort-by #(- (polygon-area (:points %))) visible-areas)
+        ;; Check if reference image is visible
+        ref-visible? (and (get-in state [:ui :reference-image :visible?])
+                          (get-in state [:ui :reference-image :image]))]
+    (doseq [area sorted-areas]
+      (render-area! ctx area zoom ref-visible?))))
 
 ;; Plant rendering
 
@@ -709,6 +737,7 @@
         zoom (get-in state [:viewport :zoom])
         tool-state (get-in state [:tool :state])
         hover-vertex (:hover-vertex tool-state)
+        selected-vertex (:selected-vertex tool-state)
         hover-edge (:hover-edge tool-state)]
     (when (seq selected-ids)
       (case (:type selection)
@@ -721,11 +750,20 @@
             (doseq [[idx [x y]] (map-indexed vector (:points area))]
               (let [is-hovered? (and hover-vertex
                                      (= id (:area-id hover-vertex))
-                                     (= idx (:vertex-index hover-vertex)))]
-                ;; Draw larger highlight if hovered
-                (when is-hovered?
-                  (draw-circle! ctx x y (/ 10 zoom) "rgba(0, 102, 255, 0.3)"))
-                (draw-circle! ctx x y (/ 6 zoom) (if is-hovered? "#ff6600" "#0066ff"))
+                                     (= idx (:vertex-index hover-vertex)))
+                    is-selected? (and selected-vertex
+                                      (= id (:area-id selected-vertex))
+                                      (= idx (:vertex-index selected-vertex)))
+                    is-active? (or is-hovered? is-selected?)]
+                ;; Draw larger highlight if hovered or selected
+                (when is-active?
+                  (draw-circle! ctx x y (/ 12 zoom) (if is-selected?
+                                                      "rgba(255, 0, 0, 0.3)"
+                                                      "rgba(0, 102, 255, 0.3)")))
+                (draw-circle! ctx x y (/ 6 zoom) (cond
+                                                   is-selected? "#ff0000"
+                                                   is-hovered? "#ff6600"
+                                                   :else "#0066ff"))
                 (draw-circle! ctx x y (/ 4 zoom) "#fff")))
             ;; Draw edge insertion point if hovering
             (when (and hover-edge (= id (:area-id hover-edge)))
@@ -843,6 +881,46 @@
               (set! (.-textAlign ctx) "center")
               (set! (.-textBaseline ctx) "middle")
               (.fillText ctx (str "Scatter " (or count 20) " plants") cx cy)))
+          (.restore ctx)))
+
+      :trace
+      (let [{:keys [points drawing? area-type]} tool-state]
+        (when (and drawing? (seq points))
+          (.save ctx)
+          (let [{:keys [offset zoom]} (:viewport state)
+                [ox oy] offset
+                color (case area-type
+                        :water "#4a90d9"
+                        :bed "#8B6914"
+                        :path "#d4a574"
+                        :structure "#607D8B"
+                        :lawn "#7CB342"
+                        :rocks "#9E9E9E"
+                        :hedge "#2E7D32"
+                        :mulch "#5D4037"
+                        :patio "#8D6E63"
+                        :sand "#E8D5B7"
+                        "#888888")]
+            (.translate ctx ox oy)
+            (.scale ctx zoom zoom)
+            ;; Draw the traced path
+            (.beginPath ctx)
+            (let [[fx fy] (first points)]
+              (.moveTo ctx fx fy))
+            (doseq [[x y] (rest points)]
+              (.lineTo ctx x y))
+            ;; Close the path back to start
+            (.closePath ctx)
+            ;; Fill with transparency
+            (set! (.-fillStyle ctx) color)
+            (set! (.-globalAlpha ctx) 0.3)
+            (.fill ctx)
+            ;; Stroke the outline
+            (set! (.-globalAlpha ctx) 0.8)
+            (set! (.-strokeStyle ctx) color)
+            (set! (.-lineWidth ctx) (/ 3 zoom))
+            (.stroke ctx)
+            (set! (.-globalAlpha ctx) 1.0))
           (.restore ctx)))
 
       ;; Default: no overlay

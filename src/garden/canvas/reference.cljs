@@ -6,19 +6,22 @@
 
 (defn render!
   "Render the reference image overlay if visible and loaded.
-   Uses multiply blend mode so white becomes transparent."
+   Position represents the image CENTER in garden coordinates."
   [ctx state]
   (let [ref-img (get-in state [:ui :reference-image])]
     (when (and (:visible? ref-img)
                (:image ref-img))
       (let [{:keys [image position opacity bar-meters]} ref-img
-            [x y] position
+            [cx cy] (or position [0 0])  ; center position
             bar-m (or bar-meters 50)
             ;; Scale: bar-image-pixels of the image = bar-meters in real world
             ;; So each image pixel = (bar-meters * 100 cm) / bar-image-pixels
             effective-scale (/ (* bar-m 100) bar-image-pixels)
             w (* (.-width image) effective-scale)
-            h (* (.-height image) effective-scale)]
+            h (* (.-height image) effective-scale)
+            ;; Calculate top-left from center
+            x (- cx (/ w 2))
+            y (- cy (/ h 2))]
         ;; Draw the image
         (.save ctx)
         (set! (.-globalAlpha ctx) (or opacity 0.5))

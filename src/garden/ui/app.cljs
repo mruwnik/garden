@@ -15,7 +15,9 @@
             [garden.tools.select]
             [garden.tools.area]
             [garden.tools.plant]
-            [garden.tools.scatter]))
+            [garden.tools.scatter]
+            [garden.tools.trace]
+            [garden.tools.fill]))
 
 (defn- get-canvas-point
   "Get the point relative to the canvas from a mouse event."

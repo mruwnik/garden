@@ -44,6 +44,10 @@
     (state/set-tool-state! {:points [] :preview-point nil}))
 
   (on-deactivate [_]
+    ;; Save any in-progress area before switching tools
+    (let [points (:points (state/tool-state))]
+      (when (>= (count points) 3)
+        (finish-area! points)))
     (state/set-tool-state! nil))
 
   (on-mouse-down [_ point _event]

@@ -28,12 +28,15 @@
                                  jitter (* spacing 0.3)
                                  x (+ base-x (- (rand jitter) (/ jitter 2)))
                                  y (+ base-y (- (rand jitter) (/ jitter 2)))]
-                             [x y]))))]
-    (doseq [[x y] positions]
-      (state/add-plant! {:species-id species-id
-                         :position [x y]
-                         :stage :mature
-                         :source :scatter}))
+                             [x y]))))
+        ;; Create all plants as a batch (single undo operation)
+        plants (mapv (fn [[x y]]
+                       {:species-id species-id
+                        :position [x y]
+                        :stage :mature
+                        :source :scatter})
+                     positions)]
+    (state/add-plants-batch! plants)
     (count positions)))
 
 (defrecord ScatterTool []

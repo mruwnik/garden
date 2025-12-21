@@ -160,6 +160,54 @@
       [:div.plant-name (:common-name plant)]
       [:div.plant-type (name (:type plant))]]]))
 
+(def drawing-tools
+  "Tools for drawing/placing items, shown in left panel."
+  [:area :trace :fill])
+
+(defn- drawing-tool-button
+  "A button for a drawing tool."
+  [tool-id]
+  (when-let [tool (tools/get-tool tool-id)]
+    (let [label (tools/tool-label tool)
+          active? (= tool-id (state/active-tool))]
+      [:button.tool-btn
+       {:class (when active? "active")
+        :on-click #(tools/activate-tool! tool-id)}
+       label])))
+
+(defn- plant-tool-button
+  "Button for plant tool with specific mode."
+  [mode label]
+  (let [active? (and (= :plant (state/active-tool))
+                     (= mode (or (:mode (state/tool-state)) :single)))]
+    [:button.tool-btn
+     {:class (when active? "active")
+      :on-click #(do (tools/activate-tool! :plant)
+                     (state/update-tool-state! assoc :mode mode))}
+     label]))
+
+(defn- scatter-tool-button
+  "Button for scatter tool."
+  []
+  (let [active? (= :scatter (state/active-tool))]
+    [:button.tool-btn
+     {:class (when active? "active")
+      :on-click #(tools/activate-tool! :scatter)}
+     "Scatter"]))
+
+(defn drawing-tools-section
+  "Section with drawing/placement tools."
+  []
+  [:div.drawing-tools-section
+   [:div.section-header "Drawing Tools"]
+   [:div.drawing-tools-buttons
+    (for [tool-id drawing-tools]
+      ^{:key tool-id}
+      [drawing-tool-button tool-id])
+    [plant-tool-button :single "Plant"]
+    [plant-tool-button :row "Plant Row"]
+    [scatter-tool-button]]])
+
 (defn plant-library
   "The plant library panel content."
   []
@@ -175,6 +223,11 @@
                           type-filter
                           (filter #(= (:type %) type-filter)))]
     [:div.plant-library
+     ;; Drawing tools section
+     [drawing-tools-section]
+
+     [:div.section-header "Plants"]
+
      ;; Search input
      [:input.search-input
       {:type "text"
