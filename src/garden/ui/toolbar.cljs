@@ -85,6 +85,13 @@
      :on-click #(state/update-state! [:ui :grid :visible?] not)}
     "Grid"]
 
+   ;; Grid labels toggle
+   [:button.tool-btn
+    {:title "Toggle Grid Labels"
+     :class (when (state/get-state :ui :grid :labels?) "active")
+     :on-click #(state/update-state! [:ui :grid :labels?] not)}
+    "Labels"]
+
    ;; Snap to grid toggle
    [:button.tool-btn
     {:title "Snap to Grid"
@@ -98,6 +105,17 @@
      :class (when (state/get-state :ui :spacing-circles :visible?) "active")
      :on-click #(state/update-state! [:ui :spacing-circles :visible?] not)}
     "Spacing"]
+
+   [:div.toolbar-separator]
+
+   ;; Reference image button - opens modal
+   (let [has-ref? (some? (state/get-state :ui :reference-image :image))
+         visible? (state/get-state :ui :reference-image :visible?)]
+     [:button.tool-btn
+      {:title "Reference image settings"
+       :class (when (and has-ref? visible?) "active")
+       :on-click #(state/set-state! [:ui :reference-modal-open?] true)}
+      "Ref Image"])
 
    [:div.toolbar-separator]
 

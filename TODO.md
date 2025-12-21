@@ -21,16 +21,16 @@
 
 - [x] Area type dropdown not responding - Can't change area type from "Garden Bed" to other types via UI
 - [x] No "Clear All" button - Reset only resets the view, not the garden content
-- [ ] Mass plant placement is tedious - Need scatter/fill area tool in UI (only available via LLM tools)
+- [x] Mass plant placement is tedious - Added "Scatter" tool to UI for mass plant placement
 - [x] Paths rendered as thin lines - Should be thicker/more visible areas
 - [x] No undo/redo buttons visible in toolbar
 - [x] Properties panel shows wrong type after programmatic change (shows "Garden Bed" even when area is water)
 
 ### Recreating from Reference Map (from dogfooding)
 
-- [ ] No reference image overlay - Can't trace or compare to a reference map
-- [ ] No way to move/reposition existing areas - Once drawn, areas are fixed
-- [ ] No spatial planning grid with measurements - Hard to plan proportions
+- [x] No reference image overlay - Added "Ref Image" button to load and overlay reference images
+- [x] No way to move/reposition existing areas - Select tool allows dragging areas and vertices
+- [x] No spatial planning grid with measurements - Added optional measurement labels to grid (toggle with "Labels" button)
 - [ ] Initial placement errors are hard to fix - Need to delete and redraw
 - [ ] No "import layout" feature - Would help recreate known gardens
 
@@ -56,3 +56,6 @@
 - [x] Added `set_zoom` and `pan_to` LLM tools - allows assistant to control viewport
 - [x] Added "Clear All" button to toolbar with confirmation dialog
 - [x] Added undo/redo functionality with history tracking (up to 50 states)
+- [x] Added measurement labels to grid (optional, toggle with "Labels" button)
+- [x] Added reference image overlay feature (load via "Ref Image" button, adjust opacity)
+- [x] Added "Scatter" tool for mass plant placement via UI (draw rectangle to scatter plants)

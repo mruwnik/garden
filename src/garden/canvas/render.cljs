@@ -812,6 +812,39 @@
           (set! (.-globalAlpha ctx) 1.0))
         (.restore ctx))
 
+      :scatter
+      (let [{:keys [start preview count]} tool-state]
+        (when (and start preview)
+          (.save ctx)
+          (let [{:keys [offset zoom]} (:viewport state)
+                [ox oy] offset
+                [x1 y1] start
+                [x2 y2] preview
+                min-x (min x1 x2)
+                max-x (max x1 x2)
+                min-y (min y1 y2)
+                max-y (max y1 y2)]
+            (.translate ctx ox oy)
+            (.scale ctx zoom zoom)
+            ;; Draw scatter area rectangle
+            (set! (.-fillStyle ctx) "rgba(0, 200, 0, 0.1)")
+            (.fillRect ctx min-x min-y (- max-x min-x) (- max-y min-y))
+            (set! (.-strokeStyle ctx) "rgba(0, 150, 0, 0.6)")
+            (set! (.-lineWidth ctx) (/ 2 zoom))
+            (.setLineDash ctx #js [(/ 8 zoom) (/ 4 zoom)])
+            (.strokeRect ctx min-x min-y (- max-x min-x) (- max-y min-y))
+            (.setLineDash ctx #js [])
+            ;; Show count label
+            (let [font-size (/ 16 zoom)
+                  cx (/ (+ min-x max-x) 2)
+                  cy (/ (+ min-y max-y) 2)]
+              (set! (.-font ctx) (str "bold " font-size "px sans-serif"))
+              (set! (.-fillStyle ctx) "rgba(0, 100, 0, 0.8)")
+              (set! (.-textAlign ctx) "center")
+              (set! (.-textBaseline ctx) "middle")
+              (.fillText ctx (str "Scatter " (or count 20) " plants") cx cy)))
+          (.restore ctx)))
+
       ;; Default: no overlay
       nil)))
 

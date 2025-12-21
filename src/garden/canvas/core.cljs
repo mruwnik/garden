@@ -2,7 +2,8 @@
   (:require [garden.state :as state]
             [garden.canvas.viewport :as viewport]
             [garden.canvas.grid :as grid]
-            [garden.canvas.render :as render]))
+            [garden.canvas.render :as render]
+            [garden.canvas.reference :as reference]))
 
 ;; Dirty tracking for efficient rendering
 (defonce ^:private last-render-state (atom nil))
@@ -50,6 +51,9 @@
       (when (get-in state [:ui :background :visible?])
         (render/render-background! ctx state))
 
+      ;; Render reference image overlay (behind areas/plants)
+      (reference/render! ctx state)
+
       ;; Render grid
       (when (get-in state [:ui :grid :visible?])
         (grid/render! ctx state))
@@ -69,6 +73,9 @@
 
       ;; Render tooltip for hovered plant
       (render/render-tooltip! ctx state)
+
+      ;; Render reference image scale bar (in screen coords)
+      (reference/render-scale-bar! ctx state)
 
       ;; Update last render state
       (reset! last-render-state (render-keys state))

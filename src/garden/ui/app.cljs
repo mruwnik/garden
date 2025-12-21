@@ -9,11 +9,13 @@
             [garden.ui.panels.library :as library]
             [garden.ui.panels.properties :as properties]
             [garden.ui.panels.chat :as chat]
+            [garden.ui.panels.reference :as reference]
             ;; Load tools to register them
             [garden.tools.pan]
             [garden.tools.select]
             [garden.tools.area]
-            [garden.tools.plant]))
+            [garden.tools.plant]
+            [garden.tools.scatter]))
 
 (defn- get-canvas-point
   "Get the point relative to the canvas from a mouse event."
@@ -162,7 +164,8 @@
 (defn app
   "Root application component."
   []
-  (let [chat-open? (state/get-state :chat :open?)]
+  (let [chat-open? (state/get-state :chat :open?)
+        ref-modal-open? (state/get-state :ui :reference-modal-open?)]
     [:div.app
      [toolbar/toolbar]
      [:div.main-content
@@ -175,7 +178,10 @@
       (when chat-open?
         [chat/chat-panel])
       ;; Chat toggle button (always visible)
-      [chat/chat-toggle-button]]]))
+      [chat/chat-toggle-button]
+      ;; Reference image modal
+      (when ref-modal-open?
+        [reference/reference-modal])]]))
 
 (defn mount-app
   "Mount the app to the DOM."

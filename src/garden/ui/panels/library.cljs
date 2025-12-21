@@ -149,7 +149,10 @@
                        (state/update-tool-state! assoc :species-id (:id plant)))
       :on-click (fn []
                   ;; Select this plant for placement
-                  (tools/activate-tool! :plant)
+                  ;; If scatter tool is active, stay in scatter mode
+                  (let [current-tool (state/active-tool)]
+                    (when (not= current-tool :scatter)
+                      (tools/activate-tool! :plant)))
                   (state/update-tool-state! assoc :species-id (:id plant)))}
      [:div.plant-color
       {:style {:background-color (:color plant)}}]

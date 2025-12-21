@@ -59,4 +59,42 @@
       (.lineTo ctx end-x 0)
       (.stroke ctx)
 
+      ;; Draw measurement labels (optional)
+      (when (get-in state [:ui :grid :labels?])
+        (let [label-spacing (cond
+                              (< zoom 0.01) (* spacing 10)
+                              (< zoom 0.02) (* spacing 5)
+                              (< zoom 0.05) (* spacing 4)
+                              (< zoom 0.1) (* spacing 2)
+                              :else spacing)
+              font-size (/ 12 zoom)]
+          (set! (.-fillStyle ctx) "#666")
+          (set! (.-font ctx) (str font-size "px sans-serif"))
+          (set! (.-textAlign ctx) "center")
+          (set! (.-textBaseline ctx) "top")
+
+          ;; X-axis labels (along bottom of visible area, or at y=0)
+          (let [label-y (js/Math.min (- max-y (/ 20 zoom)) 0)]
+            (loop [x (* (Math/ceil (/ start-x label-spacing)) label-spacing)]
+              (when (<= x end-x)
+                (let [meters (/ x 100)
+                      label (if (zero? (mod meters 1))
+                              (str (int meters) "m")
+                              (str (.toFixed meters 1) "m"))]
+                  (.fillText ctx label x (+ label-y (/ 5 zoom))))
+                (recur (+ x label-spacing)))))
+
+          ;; Y-axis labels (along left of visible area, or at x=0)
+          (set! (.-textAlign ctx) "left")
+          (set! (.-textBaseline ctx) "middle")
+          (let [label-x (js/Math.max (+ min-x (/ 5 zoom)) 0)]
+            (loop [y (* (Math/ceil (/ start-y label-spacing)) label-spacing)]
+              (when (<= y end-y)
+                (let [meters (/ y 100)
+                      label (if (zero? (mod meters 1))
+                              (str (int meters) "m")
+                              (str (.toFixed meters 1) "m"))]
+                  (.fillText ctx label (+ label-x (/ 5 zoom)) y))
+                (recur (+ y label-spacing)))))))
+
       (.restore ctx))))

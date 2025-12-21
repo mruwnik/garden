@@ -36,9 +36,17 @@
    :ui {:panels {:left {:open? true :width 260}
                  :right {:open? true :width 260}
                  :bottom {:open? false :height 120}}
-        :grid {:visible? true :spacing 50 :snap? false}
+        :grid {:visible? true :spacing 50 :snap? false :labels? true}
         :spacing-circles {:visible? false}
         :background {:visible? true}
+        :reference-image {:visible? false
+                          :url nil         ; data URL or file URL
+                          :image nil       ; loaded Image object
+                          :position [0 0]  ; top-left position in garden coords
+                          :scale 1.0       ; scale factor (cm per image pixel)
+                          :opacity 0.5
+                          :bar-meters 50}  ; what the scale bar represents
+        :reference-modal-open? false
         :mode :plan
         :hover {:position nil :plant-id nil}
         :mouse {:canvas-pos nil}}
@@ -262,3 +270,54 @@
     (swap! app-state #(-> %
                           (assoc-in [:viewport :zoom] new-zoom)
                           (assoc-in [:viewport :offset] [new-ox new-oy])))))
+
+;; Reference image helpers
+
+(defn load-reference-image!
+  "Load a reference image from a File object."
+  [file]
+  (let [reader (js/FileReader.)]
+    (set! (.-onload reader)
+          (fn [e]
+            (let [data-url (.. e -target -result)
+                  img (js/Image.)]
+              (set! (.-onload img)
+                    (fn []
+                      ;; Calculate scale to fit image within garden (max 40m = 4000cm)
+                      (let [max-size 4000
+                            img-w (.-width img)
+                            img-h (.-height img)
+                            scale (min (/ max-size img-w) (/ max-size img-h) 10)
+                            ;; Center image on current viewport
+                            {:keys [offset zoom size]} (viewport)
+                            [ox oy] offset
+                            vw (:width size)
+                            vh (:height size)
+                            ;; Calculate center of visible area in garden coords
+                            center-x (/ (- (/ vw 2) ox) zoom)
+                            center-y (/ (- (/ vh 2) oy) zoom)
+                            ;; Position image so its center is at viewport center
+                            img-canvas-w (* img-w scale)
+                            img-canvas-h (* img-h scale)
+                            pos-x (- center-x (/ img-canvas-w 2))
+                            pos-y (- center-y (/ img-canvas-h 2))]
+                        (set-state! [:ui :reference-image :url] data-url)
+                        (set-state! [:ui :reference-image :image] img)
+                        (set-state! [:ui :reference-image :scale] scale)
+                        (set-state! [:ui :reference-image :position] [pos-x pos-y])
+                        (set-state! [:ui :reference-image :visible?] true))))
+              (set! (.-src img) data-url))))
+    (.readAsDataURL reader file)))
+
+(defn clear-reference-image! []
+  (swap! app-state update-in [:ui :reference-image]
+         assoc :url nil :image nil :visible? false))
+
+(defn set-reference-opacity! [opacity]
+  (set-state! [:ui :reference-image :opacity] (max 0.1 (min 1.0 opacity))))
+
+(defn set-reference-scale! [scale]
+  (set-state! [:ui :reference-image :scale] (max 0.1 (min 10.0 scale))))
+
+(defn toggle-reference-visible! []
+  (update-state! [:ui :reference-image :visible?] not))
