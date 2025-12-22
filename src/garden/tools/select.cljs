@@ -54,10 +54,14 @@
           :point point})))))
 
 (defn- find-area-at
-  "Find the topmost area containing the point."
+  "Find the topmost area containing the point.
+   Accounts for holes - clicking in a hole won't select the area."
   [point]
   (let [areas (reverse (state/areas))] ; Check top-to-bottom
-    (first (filter #(geom/point-in-polygon? (:points %) point) areas))))
+    (first (filter #(if (:holes %)
+                      (geom/point-in-polygon-with-holes? (:points %) (:holes %) point)
+                      (geom/point-in-polygon? (:points %) point))
+                   areas))))
 
 (defn- find-plant-at
   "Find a plant near the point using actual plant radius."

@@ -42,28 +42,47 @@
             (.fill ctx)))))))
 
 (defn- draw-polygon!
-  "Draw a filled polygon."
-  [ctx points color]
+  "Draw a filled polygon, optionally with holes using evenodd fill rule."
+  [ctx points color & [holes]]
   (when (seq points)
     (.beginPath ctx)
+    ;; Draw outer ring
     (let [[x y] (first points)]
       (.moveTo ctx x y))
     (doseq [[x y] (rest points)]
       (.lineTo ctx x y))
     (.closePath ctx)
+    ;; Draw holes as part of the same path (evenodd will cut them out)
+    (doseq [hole holes]
+      (when (seq hole)
+        (let [[x y] (first hole)]
+          (.moveTo ctx x y))
+        (doseq [[x y] (rest hole)]
+          (.lineTo ctx x y))
+        (.closePath ctx)))
+    ;; Fill using evenodd rule - holes will be cut out
     (set! (.-fillStyle ctx) color)
-    (.fill ctx)))
+    (.fill ctx "evenodd")))
 
 (defn- draw-polygon-outline!
-  "Draw a polygon outline."
-  [ctx points color line-width]
+  "Draw a polygon outline, optionally with holes."
+  [ctx points color line-width & [holes]]
   (when (seq points)
     (.beginPath ctx)
+    ;; Draw outer ring
     (let [[x y] (first points)]
       (.moveTo ctx x y))
     (doseq [[x y] (rest points)]
       (.lineTo ctx x y))
     (.closePath ctx)
+    ;; Draw hole outlines
+    (doseq [hole holes]
+      (when (seq hole)
+        (let [[x y] (first hole)]
+          (.moveTo ctx x y))
+        (doseq [[x y] (rest hole)]
+          (.lineTo ctx x y))
+        (.closePath ctx)))
     (set! (.-strokeStyle ctx) color)
     (set! (.-lineWidth ctx) line-width)
     (.stroke ctx)))
@@ -88,20 +107,30 @@
 ;; Area rendering
 
 (defn- clip-to-polygon!
-  "Set up clipping region for a polygon. Call .restore to remove clip."
-  [ctx points]
+  "Set up clipping region for a polygon with optional holes. Call .restore to remove clip."
+  [ctx points & [holes]]
   (.save ctx)
   (.beginPath ctx)
+  ;; Draw outer ring
   (let [[x y] (first points)]
     (.moveTo ctx x y))
   (doseq [[x y] (rest points)]
     (.lineTo ctx x y))
   (.closePath ctx)
-  (.clip ctx))
+  ;; Draw holes
+  (doseq [hole holes]
+    (when (seq hole)
+      (let [[x y] (first hole)]
+        (.moveTo ctx x y))
+      (doseq [[x y] (rest hole)]
+        (.lineTo ctx x y))
+      (.closePath ctx)))
+  ;; Use evenodd for clipping - holes are excluded from clip region
+  (.clip ctx "evenodd"))
 
 (defn- draw-soil-texture!
   "Draw organic soil texture with dirt clumps and variations."
-  [ctx points]
+  [ctx points & [holes]]
   (when (seq points)
     (let [xs (map first points)
           ys (map second points)
@@ -109,7 +138,7 @@
           max-x (apply max xs)
           min-y (apply min ys)
           max-y (apply max ys)]
-      (clip-to-polygon! ctx points)
+      (clip-to-polygon! ctx points holes)
       ;; Dark soil base variations
       (set! (.-fillStyle ctx) "rgba(60, 40, 30, 0.15)")
       (doseq [x (range min-x max-x 25)
@@ -140,7 +169,7 @@
 
 (defn- draw-stone-path-texture!
   "Draw cobblestone/gravel pattern for paths."
-  [ctx points]
+  [ctx points & [holes]]
   (when (seq points)
     (let [xs (map first points)
           ys (map second points)
@@ -149,7 +178,7 @@
           min-y (apply min ys)
           max-y (apply max ys)
           stone-size 22]
-      (clip-to-polygon! ctx points)
+      (clip-to-polygon! ctx points holes)
       ;; Draw individual stones
       (doseq [row (range (int (/ (- min-y 10) stone-size)) (int (/ (+ max-y 10) stone-size)))
               col (range (int (/ (- min-x 10) stone-size)) (int (/ (+ max-x 10) stone-size)))]
@@ -196,7 +225,7 @@
 
 (defn- draw-wood-texture!
   "Draw wood grain pattern for structures."
-  [ctx points]
+  [ctx points & [holes]]
   (when (seq points)
     (let [xs (map first points)
           ys (map second points)
@@ -204,7 +233,7 @@
           max-x (apply max xs)
           min-y (apply min ys)
           max-y (apply max ys)]
-      (clip-to-polygon! ctx points)
+      (clip-to-polygon! ctx points holes)
       ;; Wood grain lines
       (set! (.-strokeStyle ctx) "rgba(80, 55, 35, 0.25)")
       (set! (.-lineWidth ctx) 1.5)
@@ -251,7 +280,7 @@
 
 (defn- draw-path-as-stroke!
   "Draw a thin path as a thick stroke along its centerline."
-  [ctx points color width zoom]
+  [ctx points color width _zoom]
   (when (seq points)
     (.beginPath ctx)
     (let [[x y] (first points)]
@@ -266,7 +295,7 @@
 
 (defn- draw-water-texture!
   "Draw water ripple effects."
-  [ctx points]
+  [ctx points & [holes]]
   (when (seq points)
     (let [xs (map first points)
           ys (map second points)
@@ -276,7 +305,7 @@
           max-y (apply max ys)
           cx (/ (+ min-x max-x) 2)
           cy (/ (+ min-y max-y) 2)]
-      (clip-to-polygon! ctx points)
+      (clip-to-polygon! ctx points holes)
       ;; Ripple circles
       (set! (.-strokeStyle ctx) "rgba(255,255,255,0.2)")
       (set! (.-lineWidth ctx) 2)
@@ -298,6 +327,7 @@
   "Render a single area with type-specific styling and aggressive LOD."
   [ctx area zoom ref-visible?]
   (let [points (:points area)
+        holes (:holes area)  ; Optional inner rings (islands become holes)
         area-type (or (:type area) :bed)
         color (or (:color area)
                   (case area-type
@@ -321,39 +351,39 @@
       (if (path-is-thin? points)
         ;; Thin path: render as thick stroke
         (draw-path-as-stroke! ctx points color 80 zoom)
-        ;; Wide path polygon: render normally with texture
+        ;; Wide path polygon: render with holes
         (do
-          (draw-polygon! ctx points color)
+          (draw-polygon! ctx points color holes)
           (when show-textures?
-            (draw-stone-path-texture! ctx points))
-          (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 2 zoom))))
+            (draw-stone-path-texture! ctx points holes))
+          (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 2 zoom) holes)))
 
       :water
       (do
-        (draw-polygon! ctx points color)
+        (draw-polygon! ctx points color holes)
         (when show-textures?
-          (draw-water-texture! ctx points))
-        (draw-polygon-outline! ctx points "rgba(0,50,100,0.5)" (/ 2 zoom)))
+          (draw-water-texture! ctx points holes))
+        (draw-polygon-outline! ctx points "rgba(0,50,100,0.5)" (/ 2 zoom) holes))
 
       :bed
       (do
-        (draw-polygon! ctx points color)
+        (draw-polygon! ctx points color holes)
         (when show-textures?
-          (draw-soil-texture! ctx points))
-        (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 1 zoom)))
+          (draw-soil-texture! ctx points holes))
+        (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 1 zoom) holes))
 
       :structure
       (do
-        (draw-polygon! ctx points color)
+        (draw-polygon! ctx points color holes)
         (when show-textures?
-          (draw-wood-texture! ctx points)
-          (draw-polygon-outline! ctx points "rgba(0,0,0,0.5)" (/ 3 zoom)))
-        (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 1 zoom)))
+          (draw-wood-texture! ctx points holes)
+          (draw-polygon-outline! ctx points "rgba(0,0,0,0.5)" (/ 3 zoom) holes))
+        (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 1 zoom) holes))
 
       ;; Default
       (do
-        (draw-polygon! ctx points color)
-        (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 1 zoom))))
+        (draw-polygon! ctx points color holes)
+        (draw-polygon-outline! ctx points "rgba(0,0,0,0.3)" (/ 1 zoom) holes)))
 
     ;; Restore opacity
     (.restore ctx)))
@@ -744,9 +774,9 @@
         :area
         (doseq [id selected-ids]
           (when-let [area (state/find-area id)]
-            ;; Highlight outline
+            ;; Highlight outer outline only (holes not shown in selection)
             (draw-polygon-outline! ctx (:points area) "#0066ff" (/ 3 zoom))
-            ;; Draw vertex handles
+            ;; Draw vertex handles for outer ring
             (doseq [[idx [x y]] (map-indexed vector (:points area))]
               (let [is-hovered? (and hover-vertex
                                      (= id (:area-id hover-vertex))
@@ -755,7 +785,7 @@
                                       (= id (:area-id selected-vertex))
                                       (= idx (:vertex-index selected-vertex)))
                     is-active? (or is-hovered? is-selected?)]
-                ;; Draw larger highlight if hovered or selected
+                  ;; Draw larger highlight if hovered or selected
                 (when is-active?
                   (draw-circle! ctx x y (/ 12 zoom) (if is-selected?
                                                       "rgba(255, 0, 0, 0.3)"

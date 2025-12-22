@@ -9,13 +9,6 @@
 ;; Area types that respect existing areas by default
 (def ^:private respects-existing-default #{:water :path})
 
-(defn- colors-similar?
-  "Check if two colors are within tolerance."
-  [[r1 g1 b1 _a1] [r2 g2 b2 _a2] tolerance]
-  (and (<= (js/Math.abs (- r1 r2)) tolerance)
-       (<= (js/Math.abs (- g1 g2)) tolerance)
-       (<= (js/Math.abs (- b1 b2)) tolerance)))
-
 (defn- canvas->image-coords
   "Convert canvas coordinates to reference image pixel coordinates.
    Position is the image CENTER in canvas coordinates."
@@ -78,13 +71,11 @@
       (.-data image-data))))
 
 (defn- flood-fill-mask
-  "Perform flood fill and return a 2D boolean mask of filled pixels.
-   Uses a scanline algorithm for efficiency.
-   exclusion-mask is an optional Uint8Array (from canvas getImageData) where non-zero R channel means exclude."
+  "Perform flood fill and return a js/Set of filled pixel keys.
+   Uses JS arrays for stack to avoid Clojure overhead."
   [img start-x start-y tolerance max-pixels exclusion-mask]
   (let [w (.-width img)
         h (.-height img)
-        ;; Create a canvas to read pixels
         canvas (js/document.createElement "canvas")
         ctx (.getContext canvas "2d")]
     (set! (.-width canvas) w)
@@ -92,59 +83,58 @@
     (.drawImage ctx img 0 0)
     (let [image-data (.getImageData ctx 0 0 w h)
           data (.-data image-data)
-          ;; Get target color
           idx (* 4 (+ start-x (* start-y w)))
-          target-color [(aget data idx)
-                        (aget data (+ idx 1))
-                        (aget data (+ idx 2))
-                        (aget data (+ idx 3))]
-          ;; Track visited pixels
+          tr (aget data idx)
+          tg (aget data (+ idx 1))
+          tb (aget data (+ idx 2))
+          ;; Use JS array as stack for performance
+          stack #js [start-x start-y]
           visited (js/Set.)
-          filled (js/Set.)
-          ;; Pixel helper
-          get-color (fn [x y]
-                      (let [i (* 4 (+ x (* y w)))]
-                        [(aget data i)
-                         (aget data (+ i 1))
-                         (aget data (+ i 2))
-                         (aget data (+ i 3))]))
-          key-fn (fn [x y] (+ x (* y w)))]
-      ;; Scanline flood fill
-      (loop [stack [[start-x start-y]]
-             count 0]
-        (if (or (empty? stack) (>= count max-pixels))
+          filled (js/Set.)]
+      (loop [cnt 0]
+        (if (or (zero? (.-length stack)) (>= cnt max-pixels))
           filled
-          (let [[x y] (peek stack)
-                stack (pop stack)
-                k (key-fn x y)]
-            (if (or (neg? x) (>= x w) (neg? y) (>= y h)
-                    (.has visited k))
-              (recur stack count)
+          (let [y (.pop stack)
+                x (.pop stack)
+                k (+ x (* y w))]
+            (if (or (neg? x) (>= x w) (neg? y) (>= y h) (.has visited k))
+              (recur cnt)
               (do
                 (.add visited k)
-                (if (and (colors-similar? (get-color x y) target-color tolerance)
-                         (not (and exclusion-mask
-                                   (let [i (* 4 (+ x (* y w)))]
-                                     (pos? (aget exclusion-mask i))))))
-                  (do
-                    (.add filled k)
-                    (recur (-> stack
-                               (conj [(dec x) y])
-                               (conj [(inc x) y])
-                               (conj [x (dec y)])
-                               (conj [x (inc y)]))
-                           (inc count)))
-                  (recur stack count))))))))))
+                (let [i (* 4 k)
+                      r (aget data i)
+                      g (aget data (+ i 1))
+                      b (aget data (+ i 2))]
+                  (if (and (<= (js/Math.abs (- r tr)) tolerance)
+                           (<= (js/Math.abs (- g tg)) tolerance)
+                           (<= (js/Math.abs (- b tb)) tolerance)
+                           (not (and exclusion-mask (pos? (aget exclusion-mask i)))))
+                    (do
+                      (.add filled k)
+                      (.push stack (dec x) y)
+                      (.push stack (inc x) y)
+                      (.push stack x (dec y))
+                      (.push stack x (inc y))
+                      (recur (inc cnt)))
+                    (recur cnt)))))))))))
 
 (defn- find-start-pixel
-  "Find the topmost-leftmost boundary pixel."
-  [filled-set w h]
-  (first (for [y (range h)
-               x (range w)
-               :let [k (+ x (* y w))]
-               :when (and (.has filled-set k)
-                          (not (.has filled-set (+ x (* (dec y) w)))))]
-           [x y])))
+  "Find the topmost-leftmost boundary pixel by scanning filled pixels."
+  [filled-set w _h]
+  (let [result (atom nil)]
+    (.forEach filled-set
+              (fn [k]
+                (let [x (mod k w)
+                      y (quot k w)
+                      ;; Check if this is a top boundary (pixel above not filled)
+                      above-k (- k w)]
+                  (when (and (or (neg? above-k) (not (.has filled-set above-k)))
+                             ;; Is this better than current best?
+                             (or (nil? @result)
+                                 (< y (second @result))
+                                 (and (= y (second @result)) (< x (first @result)))))
+                    (reset! result [x y])))))
+    @result))
 
 (defn- moore-neighborhood
   "Get the 8 neighbors in Moore neighborhood order (clockwise from given direction)."
@@ -187,48 +177,292 @@
                        back-dir
                        (inc steps))))))))))
 
+(defn- sample-contour
+  "Pre-sample a contour to at most max-points by taking every nth point."
+  [points max-points]
+  (let [n (count points)]
+    (if (<= n max-points)
+      points
+      (let [step (/ n max-points)]
+        (vec (for [i (range max-points)]
+               (nth points (int (* i step)))))))))
+
 (defn- simplify-contour
-  "Reduce points using Ramer-Douglas-Peucker algorithm."
+  "Reduce points using Ramer-Douglas-Peucker algorithm.
+   Pre-samples very long contours to avoid O(n²) worst case."
   [points epsilon]
-  (if (<= (count points) 2)
-    points
-    (let [start (first points)
-          end (last points)
-          ;; Find point with max distance from line
-          line-dist (fn [[px py]]
-                      (let [[x1 y1] start
-                            [x2 y2] end
-                            num (js/Math.abs (+ (* (- y2 y1) px)
-                                                (- (* (- x2 x1) py))
-                                                (* x2 y1)
-                                                (- (* y2 x1))))
-                            den (js/Math.sqrt (+ (* (- y2 y1) (- y2 y1))
-                                                 (* (- x2 x1) (- x2 x1))))]
-                        (if (zero? den) 0 (/ num den))))
-          indexed (map-indexed vector (rest (butlast points)))
-          [max-idx max-dist] (reduce (fn [[mi md] [i p]]
-                                       (let [d (line-dist p)]
-                                         (if (> d md) [i d] [mi md])))
-                                     [0 0]
-                                     indexed)]
-      (if (> max-dist epsilon)
-        ;; Recursively simplify
-        (let [left (simplify-contour (vec (take (+ max-idx 2) points)) epsilon)
-              right (simplify-contour (vec (drop (inc max-idx) points)) epsilon)]
-          (vec (concat (butlast left) right)))
-        ;; All points within tolerance
-        [start end]))))
+  ;; Pre-sample if contour is very long (> 2000 points)
+  (let [points (if (> (count points) 2000)
+                 (sample-contour points 2000)
+                 points)]
+    (if (<= (count points) 2)
+      points
+      (let [start (first points)
+            end (last points)
+            ;; Find point with max distance from line
+            line-dist (fn [[px py]]
+                        (let [[x1 y1] start
+                              [x2 y2] end
+                              num (js/Math.abs (+ (* (- y2 y1) px)
+                                                  (- (* (- x2 x1) py))
+                                                  (* x2 y1)
+                                                  (- (* y2 x1))))
+                              den (js/Math.sqrt (+ (* (- y2 y1) (- y2 y1))
+                                                   (* (- x2 x1) (- x2 x1))))]
+                          (if (zero? den) 0 (/ num den))))
+            indexed (map-indexed vector (rest (butlast points)))
+            [max-idx max-dist] (reduce (fn [[mi md] [i p]]
+                                         (let [d (line-dist p)]
+                                           (if (> d md) [i d] [mi md])))
+                                       [0 0]
+                                       indexed)]
+        (if (> max-dist epsilon)
+          ;; Recursively simplify
+          (let [left (simplify-contour (vec (take (+ max-idx 2) points)) epsilon)
+                right (simplify-contour (vec (drop (inc max-idx) points)) epsilon)]
+            (vec (concat (butlast left) right)))
+          ;; All points within tolerance
+          [start end])))))
+
+;; ============ Hole Detection ============
+
+(defn- collect-hole-candidates
+  "Find all unfilled pixels that are adjacent to filled pixels.
+   Returns a js/Set of pixel keys. O(filled pixels)."
+  [filled-set w h]
+  (let [candidates (js/Set.)]
+    (.forEach filled-set
+              (fn [k]
+                (let [x (mod k w)
+                      y (quot k w)]
+                  ;; Check 4 neighbors
+                  (when (and (> x 0) (not (.has filled-set (dec k))))
+                    (.add candidates (dec k)))
+                  (when (and (< x (dec w)) (not (.has filled-set (inc k))))
+                    (.add candidates (inc k)))
+                  (when (and (> y 0) (not (.has filled-set (- k w))))
+                    (.add candidates (- k w)))
+                  (when (and (< y (dec h)) (not (.has filled-set (+ k w))))
+                    (.add candidates (+ k w))))))
+    candidates))
+
+(defn- point-in-contour?
+  "Check if point [x y] is inside a contour using ray casting."
+  [[px py] contour]
+  (let [n (count contour)]
+    (loop [i 0
+           j (dec n)
+           inside? false]
+      (if (>= i n)
+        inside?
+        (let [[xi yi] (nth contour i)
+              [xj yj] (nth contour j)
+              intersects? (and (not= (> yi py) (> yj py))
+                               (< px (+ (/ (* (- xj xi) (- py yi))
+                                           (- yj yi))
+                                        xi)))]
+          (recur (inc i) i (if intersects? (not inside?) inside?)))))))
+
+(defn- flood-fill-component
+  "Flood fill from a boundary candidate into ALL unfilled pixels.
+   Expands into entire hole region, not just boundary.
+   Returns a js/Set of pixel keys, or nil if region is too large (exterior)."
+  [candidates filled-set start-k w h max-size]
+  (let [component (js/Set.)
+        stack #js [start-k]]
+    (loop []
+      (cond
+        ;; Too large - probably the exterior, abort
+        (> (.-size component) max-size)
+        nil
+
+        ;; Stack empty - done
+        (zero? (.-length stack))
+        component
+
+        :else
+        (let [k (.pop stack)]
+          (if (or (.has component k)
+                  (.has filled-set k)  ; Stop at filled region boundary
+                  (neg? k)
+                  (>= k (* w h)))
+            (recur)
+            (let [x (mod k w)
+                  y (quot k w)]
+              (if (or (neg? x) (>= x w) (neg? y) (>= y h))
+                (recur)
+                (do
+                  (.add component k)
+                  (.delete candidates k)  ; Remove from candidates if present
+                  (when (> x 0) (.push stack (dec k)))
+                  (when (< x (dec w)) (.push stack (inc k)))
+                  (when (> y 0) (.push stack (- k w)))
+                  (when (< y (dec h)) (.push stack (+ k w)))
+                  (recur))))))))))
+
+(defn- find-hole-start
+  "Find the topmost-leftmost pixel for tracing a hole boundary."
+  [component w]
+  (let [result (atom nil)]
+    (.forEach component
+              (fn [k]
+                (let [x (mod k w)
+                      y (quot k w)]
+                  (when (or (nil? @result)
+                            (< y (second @result))
+                            (and (= y (second @result)) (< x (first @result))))
+                    (reset! result [x y])))))
+    @result))
+
+(defn- group-candidates-into-components
+  "Group boundary candidates into connected components.
+   Returns a vector of js/Sets, each containing pixel keys for one component."
+  [candidates w h]
+  (let [remaining (js/Set.)
+        _ (.forEach candidates (fn [k] (.add remaining k)))
+        components (atom [])]
+    (loop []
+      (if (zero? (.-size remaining))
+        @components
+        (let [iter (.values remaining)
+              start-k (.-value (.next iter))
+              component (js/Set.)
+              stack #js [start-k]]
+          ;; Flood fill within candidates only
+          (loop []
+            (when (pos? (.-length stack))
+              (let [k (.pop stack)]
+                (when (and (.has remaining k) (not (.has component k)))
+                  (.add component k)
+                  (.delete remaining k)
+                  (let [x (mod k w)
+                        y (quot k w)]
+                    (when (> x 0) (.push stack (dec k)))
+                    (when (< x (dec w)) (.push stack (inc k)))
+                    (when (> y 0) (.push stack (- k w)))
+                    (when (< y (dec h)) (.push stack (+ k w)))))
+                (recur))))
+          (swap! components conj component)
+          (recur))))))
+
+(defn- mark-exterior-from-corners
+  "Flood fill from image corners to mark exterior candidates.
+   Returns a js/Set of candidate keys that are reachable from corners."
+  [candidates filled-set w h]
+  (let [num-candidates (.-size candidates)
+        exterior (js/Set.)
+        visited (js/Set.)
+        stack #js [0 (dec w) (* (dec h) w) (+ (dec w) (* (dec h) w))]
+        max-pixels (min 500000 (quot (* w h) 2))]
+    (loop [n 0]
+      ;; Early exit if we've marked all candidates as exterior
+      (if (or (zero? (.-length stack))
+              (>= n max-pixels)
+              (>= (.-size exterior) num-candidates))
+        exterior
+        (let [k (.pop stack)]
+          (if (or (.has visited k) (.has filled-set k))
+            (recur n)
+            (let [x (mod k w)
+                  y (quot k w)]
+              (if (or (neg? x) (>= x w) (neg? y) (>= y h))
+                (recur n)
+                (do
+                  (.add visited k)
+                  (when (.has candidates k)
+                    (.add exterior k))
+                  (.push stack (dec k))
+                  (.push stack (inc k))
+                  (.push stack (- k w))
+                  (.push stack (+ k w))
+                  (recur (inc n)))))))))))
+
+(defn- point-in-polygon?
+  "Check if a point is inside a polygon using ray casting."
+  [[px py] polygon]
+  (let [n (count polygon)]
+    (loop [i 0
+           j (dec n)
+           inside? false]
+      (if (>= i n)
+        inside?
+        (let [[xi yi] (nth polygon i)
+              [xj yj] (nth polygon j)
+              intersect? (and (not= (> yi py) (> yj py))
+                              (< px (+ (/ (* (- xj xi) (- py yi)) (- yj yi)) xi)))]
+          (recur (inc i) i (if intersect? (not inside?) inside?)))))))
+
+(defn- hole-contains-hole?
+  "Check if hole-a contains hole-b (by checking if hole-b's first point is inside hole-a)."
+  [hole-a hole-b]
+  (point-in-polygon? (first hole-b) hole-a))
+
+(defn- filter-nested-holes
+  "Remove holes that are nested inside other holes.
+   With evenodd fill, nested holes get filled back in, so we only keep top-level holes."
+  [holes]
+  (if (<= (count holes) 1)
+    holes
+    (filterv (fn [hole]
+               ;; Keep this hole only if it's not inside any other hole
+               (not-any? (fn [other-hole]
+                           (and (not= hole other-hole)
+                                (hole-contains-hole? other-hole hole)))
+                         holes))
+             holes)))
+
+(defn- detect-holes
+  "Detect holes in the filled region by finding enclosed unfilled areas.
+   Returns a vector of hole contours in image coordinates."
+  [filled-set _outer-contour w h]
+  (let [candidates (collect-hole-candidates filled-set w h)
+        ;; Mark candidates reachable from corners (exterior)
+        exterior-candidates (mark-exterior-from-corners candidates filled-set w h)
+        ;; Filter to interior candidates only
+        interior-candidates (js/Set.)
+        _ (.forEach candidates
+                    (fn [k]
+                      (when-not (.has exterior-candidates k)
+                        (.add interior-candidates k))))
+        ;; Group interior candidates into components
+        components (group-candidates-into-components interior-candidates w h)]
+    ;; Expand and trace each interior component
+    ;; Only keep holes with significant area (at least 500 pixels = ~22x22 px)
+    ;; Deduplicate by first point to avoid duplicate holes
+    (->> components
+         (keep (fn [component]
+                 (when (> (.-size component) 20)  ; Skip tiny boundary components
+                   (let [first-k (.-value (.next (.values component)))
+                         ;; Expand hole region
+                         expanded (flood-fill-component (js/Set.) filled-set first-k w h 200000)]
+                     (when (and expanded (> (.-size expanded) 500))  ; Minimum 500 pixels
+                       (when-let [start (find-hole-start expanded w)]
+                         (let [contour (trace-contour expanded w h start)
+                               simplified (simplify-contour (vec contour) 2.0)]
+                           (when (>= (count simplified) 3)
+                             simplified))))))))
+         ;; Deduplicate holes by their first point (identical holes have same first point)
+         (reduce (fn [acc hole]
+                   (let [key (first hole)]
+                     (if (contains? (set (map first acc)) key)
+                       acc  ; Skip duplicate
+                       (conj acc hole))))
+                 [])
+         ;; Filter out nested holes (holes inside other holes cause evenodd to fill them back)
+         filter-nested-holes
+         vec)))
 
 (defn- mask-to-outline
   "Convert a filled mask to an outline polygon using Moore-Neighbor tracing.
-   Returns points in image coordinates."
+   Detects holes (enclosed unfilled regions) automatically.
+   Returns {:outer [[x y]...] :holes [[[x y]...]...]} in image coordinates."
   [filled-set w h]
   (when-let [start (find-start-pixel filled-set w h)]
     (let [contour (trace-contour filled-set w h start)
-          ;; Simplify to reduce points (epsilon = 2 pixels)
           simplified (simplify-contour (vec contour) 2.0)]
       (when (>= (count simplified) 3)
-        simplified))))
+        (let [holes (detect-holes filled-set simplified w h)]
+          {:outer simplified :holes holes})))))
 
 (defn- image->canvas-coords
   "Convert image coordinates to canvas coordinates.
@@ -248,58 +482,82 @@
              (+ top-left-y (* iy scale))])
           img-points)))
 
+(defn- do-fill-work!
+  "Perform the actual fill work. Called via setTimeout to allow UI updates."
+  [canvas-point area-type ref-img]
+  (try
+    (let [img (:image ref-img)
+          [img-x img-y] (canvas->image-coords canvas-point ref-img)
+          w (.-width img)
+          h (.-height img)]
+      (when (and (>= img-x 0) (< img-x w)
+                 (>= img-y 0) (< img-y h))
+        (let [tool-state (state/tool-state)
+              tolerance (or (:tolerance tool-state) default-tolerance)
+              ;; Check if we should respect existing areas
+              respect-existing? (if (contains? tool-state :respect-existing?)
+                                  (:respect-existing? tool-state)
+                                  (contains? respects-existing-default area-type))
+              ;; Create exclusion mask for fast O(1) checks
+              areas (state/areas)
+              has-areas? (and respect-existing? (seq areas))
+              exclusion-mask (when has-areas?
+                               (create-exclusion-mask w h ref-img areas))
+              filled (flood-fill-mask img img-x img-y tolerance 200000 exclusion-mask)
+              contours (mask-to-outline filled w h)]
+          (when (and contours (:outer contours) (>= (count (:outer contours)) 3))
+            (let [;; Convert outer contour to canvas coordinates
+                  canvas-points (image->canvas-coords (:outer contours) ref-img)
+                  ;; Convert hole contours to canvas coordinates, reversed for proper winding
+                  canvas-holes (when (seq (:holes contours))
+                                 (mapv #(vec (reverse (image->canvas-coords % ref-img)))
+                                       (:holes contours)))
+                  type-colors {:water "#4a90d9"
+                               :bed "#8B6914"
+                               :path "#d4a574"
+                               :structure "#607D8B"
+                               :lawn "#7CB342"
+                               :rocks "#9E9E9E"
+                               :hedge "#2E7D32"
+                               :mulch "#5D4037"
+                               :patio "#8D6E63"
+                               :sand "#E8D5B7"}
+                  type-names {:water "Water"
+                              :bed "Garden Bed"
+                              :path "Path"
+                              :structure "Structure"
+                              :lawn "Lawn"
+                              :rocks "Rocks"
+                              :hedge "Hedge"
+                              :mulch "Mulch"
+                              :patio "Patio"
+                              :sand "Sand"}
+                  area-data (cond-> {:name (str (get type-names area-type "Area") " " (inc (count (state/areas))))
+                                     :type area-type
+                                     :points canvas-points
+                                     :color (get type-colors area-type "#888888")}
+                              ;; Only include holes if there are any
+                              (seq canvas-holes) (assoc :holes canvas-holes))
+                  area-id (state/add-area! area-data)]
+              (state/select! :area #{area-id}))))))
+    (finally
+      ;; Hide loading indicator
+      (state/set-state! [:ui :loading?] false)
+      (state/set-state! [:ui :loading-message] nil))))
+
 (defn- do-fill!
   "Perform the fill operation at the given canvas point."
   [canvas-point area-type]
   (let [ref-img (state/get-state :ui :reference-image)
         img (:image ref-img)]
     (when (and img (:visible? ref-img))
-      (let [[img-x img-y] (canvas->image-coords canvas-point ref-img)
-            w (.-width img)
-            h (.-height img)]
-        (when (and (>= img-x 0) (< img-x w)
-                   (>= img-y 0) (< img-y h))
-          (let [tool-state (state/tool-state)
-                tolerance (or (:tolerance tool-state) default-tolerance)
-                ;; Check if we should respect existing areas
-                respect-existing? (if (contains? tool-state :respect-existing?)
-                                    (:respect-existing? tool-state)
-                                    (contains? respects-existing-default area-type))
-                ;; Create exclusion mask for fast O(1) checks
-                exclusion-mask (when respect-existing?
-                                 (let [areas (state/areas)]
-                                   (when (seq areas)
-                                     (create-exclusion-mask w h ref-img areas))))
-                filled (flood-fill-mask img img-x img-y tolerance 200000 exclusion-mask)
-                outline (mask-to-outline filled w h)]
-            (when (and outline (>= (count outline) 3))
-              (let [canvas-points (image->canvas-coords outline ref-img)
-                    type-colors {:water "#4a90d9"
-                                 :bed "#8B6914"
-                                 :path "#d4a574"
-                                 :structure "#607D8B"
-                                 :lawn "#7CB342"
-                                 :rocks "#9E9E9E"
-                                 :hedge "#2E7D32"
-                                 :mulch "#5D4037"
-                                 :patio "#8D6E63"
-                                 :sand "#E8D5B7"}
-                    type-names {:water "Water"
-                                :bed "Garden Bed"
-                                :path "Path"
-                                :structure "Structure"
-                                :lawn "Lawn"
-                                :rocks "Rocks"
-                                :hedge "Hedge"
-                                :mulch "Mulch"
-                                :patio "Patio"
-                                :sand "Sand"}
-                    area-id (state/add-area!
-                             {:name (str (get type-names area-type "Area") " " (inc (count (state/areas))))
-                              :type area-type
-                              :points canvas-points
-                              :color (get type-colors area-type "#888888")})]
-                (state/select! :area #{area-id})))))))))
+      ;; Show loading indicator
+      (state/set-state! [:ui :loading?] true)
+      (state/set-state! [:ui :loading-message] "Detecting areas...")
+      ;; Use setTimeout to allow UI to update before heavy work
+      (js/setTimeout
+       #(do-fill-work! canvas-point area-type ref-img)
+       10))))
 
 (defrecord FillTool []
   p/ITool

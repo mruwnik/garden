@@ -79,6 +79,12 @@
                    (rest points)
                    (+ sum (winding-score checked (first points) point)))))))
 
+(defn point-in-polygon-with-holes?
+  "Return true if point is inside the polygon but not inside any of the holes."
+  [polygon holes point]
+  (and (point-in-polygon? polygon point)
+       (not-any? #(point-in-polygon? % point) holes)))
+
 (defn on-contour
   "Return the first segment within max-dist of point, or nil."
   [polygon point max-dist]

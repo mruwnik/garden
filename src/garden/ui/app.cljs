@@ -163,6 +163,16 @@
      [:span.status-separator "|"]
      [:span.status-item (str "Tool: " (name active-tool))]]))
 
+(defn loading-overlay
+  "Overlay shown during long-running operations."
+  []
+  (let [loading? (state/get-state :ui :loading?)
+        message (state/get-state :ui :loading-message)]
+    (when loading?
+      [:div.loading-overlay
+       [:div.loading-spinner]
+       [:div.loading-message (or message "Processing...")]])))
+
 (defn app
   "Root application component."
   []
@@ -183,7 +193,9 @@
       [chat/chat-toggle-button]
       ;; Reference image modal
       (when ref-modal-open?
-        [reference/reference-modal])]]))
+        [reference/reference-modal])
+      ;; Loading overlay
+      [loading-overlay]]]))
 
 (defn mount-app
   "Mount the app to the DOM."

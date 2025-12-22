@@ -49,7 +49,9 @@
         :reference-modal-open? false
         :mode :plan
         :hover {:position nil :plant-id nil}
-        :mouse {:canvas-pos nil}}
+        :mouse {:canvas-pos nil}
+        :loading? false
+        :loading-message nil}
 
    ;; Chat state
    :chat {:open? false
@@ -310,6 +312,24 @@
                         (set-state! [:ui :reference-image :visible?] true))))
               (set! (.-src img) data-url))))
     (.readAsDataURL reader file)))
+
+(defn load-reference-image-url!
+  "Load a reference image from a URL."
+  [url]
+  (let [img (js/Image.)]
+    (set! (.-onload img)
+          (fn []
+            (let [bar-meters (get-state :ui :reference-image :bar-meters)
+                  bar-px 150
+                  scale (/ (* (or bar-meters 50) 100) bar-px)]
+              (set-state! [:ui :reference-image :url] url)
+              (set-state! [:ui :reference-image :image] img)
+              (set-state! [:ui :reference-image :scale] scale)
+              ;; Position is the CENTER of the image in canvas coords
+              ;; Center at origin [0, 0]
+              (set-state! [:ui :reference-image :position] [0 0])
+              (set-state! [:ui :reference-image :visible?] true))))
+    (set! (.-src img) url)))
 
 (defn clear-reference-image! []
   (swap! app-state update-in [:ui :reference-image]

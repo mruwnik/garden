@@ -195,6 +195,149 @@
       :on-click #(tools/activate-tool! :scatter)}
      "Scatter"]))
 
+;; Area types for tool options
+(def area-types
+  {:bed       {:label "Garden Bed" :color "#8B6914"}
+   :path      {:label "Path" :color "#d4a574"}
+   :water     {:label "Water" :color "#4a90d9"}
+   :structure {:label "Structure" :color "#607D8B"}
+   :lawn      {:label "Lawn" :color "#7CB342"}
+   :rocks     {:label "Rocks/Gravel" :color "#9E9E9E"}
+   :hedge     {:label "Hedge" :color "#2E7D32"}
+   :mulch     {:label "Mulch" :color "#5D4037"}
+   :patio     {:label "Patio/Deck" :color "#8D6E63"}
+   :sand      {:label "Sand" :color "#E8D5B7"}})
+
+(defn- area-type-selector
+  "Dropdown to select area type for drawing tools."
+  [current-type on-change]
+  [:div.form-field
+   [:label "Area Type"]
+   [:select.select-input
+    {:value (name (or current-type :water))
+     :on-change #(on-change (keyword (-> % .-target .-value)))}
+    (for [[type-key {:keys [label]}] (sort-by (comp :label val) area-types)]
+      ^{:key type-key}
+      [:option {:value (name type-key)} label])]])
+
+(defn- trace-tool-options
+  "Options panel for the trace tool."
+  []
+  (let [tool-state (state/tool-state)
+        area-type (or (:area-type tool-state) :water)]
+    [:div.tool-options
+     [:h4 "Trace Tool"]
+     [:p.hint "Draw freehand to create area outlines"]
+     [area-type-selector area-type
+      #(state/update-tool-state! assoc :area-type %)]
+     [:div.form-info
+      [:span "Keyboard: 1-0 or W/B/P/L/H for types"]]]))
+
+(defn- fill-tool-options
+  "Options panel for the fill tool."
+  []
+  (let [tool-state (state/tool-state)
+        area-type (or (:area-type tool-state) :water)
+        tolerance (or (:tolerance tool-state) 32)
+        respect-existing? (if (contains? tool-state :respect-existing?)
+                            (:respect-existing? tool-state)
+                            (contains? #{:water :path} area-type))]
+    [:div.tool-options
+     [:h4 "Fill Tool"]
+     [:p.hint "Click on reference image to flood fill"]
+     [area-type-selector area-type
+      #(do (state/update-tool-state! assoc :area-type %)
+           ;; Update respect-existing default based on type
+           (when-not (contains? (state/tool-state) :respect-existing?)
+             (state/update-tool-state! assoc :respect-existing?
+                                       (contains? #{:water :path} %))))]
+     [:div.form-field
+      [:label "Color Tolerance"]
+      [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
+       [:input
+        {:type "range"
+         :min "8"
+         :max "128"
+         :value tolerance
+         :style {:flex "1"}
+         :on-change #(state/update-tool-state! assoc :tolerance
+                                               (js/parseInt (-> % .-target .-value)))}]
+       [:span {:style {:min-width "30px"}} tolerance]]]
+     [:div.form-field
+      [:label
+       [:input
+        {:type "checkbox"
+         :checked respect-existing?
+         :style {:margin-right "8px"}
+         :on-change #(state/update-tool-state! assoc :respect-existing?
+                                               (-> % .-target .-checked))}]
+       "Exclude existing areas"]]
+     [:div.form-info
+      [:span "+/- keys adjust tolerance"]]]))
+
+(defn- area-tool-options
+  "Options panel for the area drawing tool."
+  []
+  [:div.tool-options
+   [:h4 "Draw Area"]
+   [:p.hint "Click to place vertices, click first point or Enter to close"]
+   [:div.form-info
+    [:span "Escape to cancel"]]])
+
+(defn- scatter-tool-options
+  "Options panel for the scatter tool."
+  []
+  (let [tool-state (state/tool-state)
+        count (or (:count tool-state) 20)
+        species-id (:species-id tool-state)]
+    [:div.tool-options
+     [:h4 "Scatter Tool"]
+     [:p.hint "Drag to define area, plants scatter inside"]
+     [:div.form-field
+      [:label "Plant Count"]
+      [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
+       [:input
+        {:type "range"
+         :min "10"
+         :max "100"
+         :step "10"
+         :value count
+         :style {:flex "1"}
+         :on-change #(state/update-tool-state! assoc :count
+                                               (js/parseInt (-> % .-target .-value)))}]
+       [:span {:style {:min-width "30px"}} count]]]
+     [:div.form-info
+      [:span (str "Plant: " (or species-id "Select from library"))]]
+     [:div.form-info
+      [:span "Keys 1-9, 0 = 10-90, 100 plants"]]]))
+
+(defn- plant-tool-options
+  "Options panel for the plant tool."
+  []
+  (let [tool-state (state/tool-state)
+        mode (or (:mode tool-state) :single)
+        species-id (:species-id tool-state)]
+    [:div.tool-options
+     [:h4 (if (= mode :row) "Plant Row" "Plant")]
+     [:p.hint (if (= mode :row)
+                "Drag to place a row of plants"
+                "Click to place individual plants")]
+     [:div.form-info
+      [:span (str "Plant: " (or species-id "Select from library"))]]
+     [:div.form-info
+      [:span "Press R to toggle row mode"]]]))
+
+(defn- tool-options-panel
+  "Show options for the active drawing tool."
+  []
+  (case (state/active-tool)
+    :trace [trace-tool-options]
+    :fill [fill-tool-options]
+    :area [area-tool-options]
+    :scatter [scatter-tool-options]
+    :plant [plant-tool-options]
+    nil))
+
 (defn drawing-tools-section
   "Section with drawing/placement tools."
   []
@@ -225,6 +368,9 @@
     [:div.plant-library
      ;; Drawing tools section
      [drawing-tools-section]
+
+     ;; Tool options (shown below buttons when a drawing tool is active)
+     [tool-options-panel]
 
      [:div.section-header "Plants"]
 
