@@ -16,7 +16,6 @@
 
 (def running? core/running?)
 (def raining? core/raining?)
-(def sim-running? core/running?)  ; Deprecated alias
 
 (def water-grid core/get-water-grid)
 (def water-bounds core/get-water-bounds)

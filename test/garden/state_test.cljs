@@ -81,15 +81,22 @@
 
   (testing "update-area! modifies area"
     (reset! state/app-state state/initial-state)
-    (let [id (state/add-area! {:name "Bed 1" :points []})]
+    (let [id (state/add-area! {:name "Bed 1" :points [[0 0] [100 0] [100 100]]})]
       (state/update-area! id {:name "Updated Bed"})
       (is (= "Updated Bed" (:name (state/find-area id))))))
 
   (testing "remove-area! deletes area"
     (reset! state/app-state state/initial-state)
-    (let [id (state/add-area! {:name "Bed 1" :points []})]
+    (let [id (state/add-area! {:name "Bed 1" :points [[0 0] [100 0] [100 100]]})]
       (state/remove-area! id)
-      (is (= 0 (count (state/areas)))))))
+      (is (= 0 (count (state/areas))))))
+
+  (testing "add-area! rejects invalid areas"
+    (reset! state/app-state state/initial-state)
+    (is (nil? (state/add-area! {:name "Bad" :points []})))
+    (is (nil? (state/add-area! {:name "Bad" :points [[0 0]]})))
+    (is (nil? (state/add-area! {:name "Bad" :points [[0 0] [10 10]]})))
+    (is (= 0 (count (state/areas))))))
 
 ;; =============================================================================
 ;; Plant Operations

@@ -59,11 +59,13 @@
    ;; Zoom controls
    [:button.tool-btn
     {:title "Zoom In"
-     :on-click #(state/zoom-at! [400 300] 1.2)}
+     :on-click #(let [{:keys [width height]} (:size (state/viewport))]
+                  (state/zoom-at! [(/ width 2) (/ height 2)] 1.2))}
     "+"]
    [:button.tool-btn
     {:title "Zoom Out"
-     :on-click #(state/zoom-at! [400 300] 0.8)}
+     :on-click #(let [{:keys [width height]} (:size (state/viewport))]
+                  (state/zoom-at! [(/ width 2) (/ height 2)] 0.8))}
     "-"]
    [:button.tool-btn
     {:title "Reset View"
@@ -150,10 +152,7 @@
    [:button.tool-btn.danger
     {:title "Clear all areas and plants"
      :on-click #(when (js/confirm "Clear all areas and plants from the garden?")
-                  (doseq [area (state/areas)]
-                    (state/remove-area! (:id area)))
-                  (doseq [plant (state/plants)]
-                    (state/remove-plant! (:id plant)))
+                  (state/clear-all!)
                   (state/clear-selection!))}
     "Clear All"]
 

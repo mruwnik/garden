@@ -6,24 +6,15 @@
    - Plant editing: species, position, life stage, source
    - Topography display: elevation, slope, aspect (when topo data available)
    - Multi-selection support with batch delete"
-  (:require [garden.state :as state]
-            [garden.topo.slope :as slope]))
+  (:require [reagent.core :as r]
+            [garden.state :as state]
+            [garden.topo.slope :as slope]
+            [garden.data.area-types :as area-types]))
 
 ;; =============================================================================
-;; Area Types
+;; Debounce Utilities
 
-(def area-types
-  "Available area types with their default colors and labels."
-  {:bed       {:label "Garden Bed" :color "#8B6914"}
-   :path      {:label "Path" :color "#d4a574"}
-   :water     {:label "Water" :color "#4a90d9"}
-   :structure {:label "Structure" :color "#607D8B"}
-   :lawn      {:label "Lawn" :color "#7CB342"}
-   :rocks     {:label "Rocks/Gravel" :color "#9E9E9E"}
-   :hedge     {:label "Hedge" :color "#2E7D32"}
-   :mulch     {:label "Mulch" :color "#5D4037"}
-   :patio     {:label "Patio/Deck" :color "#8D6E63"}
-   :sand      {:label "Sand" :color "#E8D5B7"}})
+(def ^:private debounce-delay 500) ; ms before committing text changes
 
 ;; =============================================================================
 ;; Form Components
@@ -36,25 +27,61 @@
     :value (or value "#8B4513")
     :on-change #(on-change (-> % .-target .-value))}])
 
-(defn- text-input
-  "A text input field."
-  [label value on-change]
-  [:div.form-field
-   [:label label]
-   [:input.text-input
-    {:type "text"
-     :value (or value "")
-     :on-change #(on-change (-> % .-target .-value))}]])
+(defn- debounced-text-input
+  "A text input with debounced commits to prevent history spam.
+   Uses local state for instant feedback, commits on blur or after delay."
+  [label initial-value on-commit]
+  (let [local-value (r/atom (or initial-value ""))
+        timer-id (r/atom nil)
+        commit! (fn []
+                  (when @timer-id
+                    (js/clearTimeout @timer-id)
+                    (reset! timer-id nil))
+                  (when (not= @local-value initial-value)
+                    (on-commit @local-value)))]
+    (fn [label initial-value _on-commit]
+      ;; Sync with external value when it changes (e.g., undo)
+      (when (and (not= initial-value @local-value)
+                 (nil? @timer-id))
+        (reset! local-value (or initial-value "")))
+      [:div.form-field
+       [:label label]
+       [:input.text-input
+        {:type "text"
+         :value @local-value
+         :on-change (fn [e]
+                      (let [v (-> e .-target .-value)]
+                        (reset! local-value v)
+                        (when @timer-id (js/clearTimeout @timer-id))
+                        (reset! timer-id (js/setTimeout commit! debounce-delay))))
+         :on-blur commit!}]])))
 
-(defn- textarea-input
-  "A multiline textarea field."
-  [label value on-change]
-  [:div.form-field
-   [:label label]
-   [:textarea.textarea-input
-    {:value (or value "")
-     :placeholder "Add notes..."
-     :on-change #(on-change (-> % .-target .-value))}]])
+(defn- debounced-textarea-input
+  "A multiline textarea with debounced commits."
+  [label initial-value on-commit]
+  (let [local-value (r/atom (or initial-value ""))
+        timer-id (r/atom nil)
+        commit! (fn []
+                  (when @timer-id
+                    (js/clearTimeout @timer-id)
+                    (reset! timer-id nil))
+                  (when (not= @local-value initial-value)
+                    (on-commit @local-value)))]
+    (fn [label initial-value _on-commit]
+      (when (and (not= initial-value @local-value)
+                 (nil? @timer-id))
+        (reset! local-value (or initial-value "")))
+      [:div.form-field
+       [:label label]
+       [:textarea.textarea-input
+        {:value @local-value
+         :placeholder "Add notes..."
+         :on-change (fn [e]
+                      (let [v (-> e .-target .-value)]
+                        (reset! local-value v)
+                        (when @timer-id (js/clearTimeout @timer-id))
+                        (reset! timer-id (js/setTimeout commit! debounce-delay))))
+         :on-blur commit!}]])))
 
 ;; =============================================================================
 ;; Property Editors
@@ -66,7 +93,8 @@
   (let [area (state/find-area area-id)]
     (if area
       [:div.area-properties
-       [text-input "Name" (:name area)
+       ^{:key (str area-id "-name")}
+       [debounced-text-input "Name" (:name area)
         #(state/update-area! area-id {:name %})]
 
        [:div.form-field
@@ -80,14 +108,15 @@
          {:value (name (or (:type area) :bed))
           :on-change (fn [e]
                        (let [new-type (keyword (-> e .-target .-value))
-                             new-color (get-in area-types [new-type :color])]
+                             new-color (area-types/get-color new-type)]
                          (state/update-area! area-id {:type new-type
                                                       :color new-color})))}
-         (for [[type-key {:keys [label]}] (sort-by (comp :label val) area-types)]
+         (for [[type-key {:keys [label]}] (area-types/sorted-by-label)]
            ^{:key type-key}
            [:option {:value (name type-key)} label])]]
 
-       [textarea-input "Notes" (:notes area)
+       ^{:key (str area-id "-notes")}
+       [debounced-textarea-input "Notes" (:notes area)
         #(state/update-area! area-id {:notes %})]
 
        ;; Topography section (only shown if topo data available)
@@ -172,10 +201,8 @@
    [:button.delete-btn
     {:on-click (fn []
                  (case (:type selection)
-                   :area (doseq [id (:ids selection)]
-                           (state/remove-area! id))
-                   :plant (doseq [id (:ids selection)]
-                            (state/remove-plant! id))
+                   :area (state/remove-areas-batch! (vec (:ids selection)))
+                   :plant (state/remove-plants-batch! (vec (:ids selection)))
                    nil)
                  (state/clear-selection!))}
     "Delete All"]])

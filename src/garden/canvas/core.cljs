@@ -35,14 +35,31 @@
 ;; Performance Tracking
 
 (defonce ^:private last-render-time (atom 0))
-(defonce ^:private render-times (atom []))
+
+;; Ring buffer for render times - avoids allocation on every frame
+(def ^:private render-time-size 30)
+(defonce ^:private render-time-buffer (js/Float64Array. render-time-size))
+(defonce ^:private render-time-index (atom 0))
+(defonce ^:private render-time-count (atom 0))
+
+(defn- record-render-time!
+  "Record a render time to the ring buffer without allocation."
+  [elapsed]
+  (let [idx @render-time-index]
+    (aset render-time-buffer idx elapsed)
+    (reset! render-time-index (mod (inc idx) render-time-size))
+    (when (< @render-time-count render-time-size)
+      (swap! render-time-count inc))))
 
 (defn get-avg-render-time
   "Get average render time in ms (last 30 frames)."
   []
-  (let [times @render-times]
-    (when (seq times)
-      (/ (reduce + times) (count times)))))
+  (let [cnt @render-time-count]
+    (when (pos? cnt)
+      (loop [i 0 sum 0.0]
+        (if (< i cnt)
+          (recur (inc i) (+ sum (aget render-time-buffer i)))
+          (/ sum cnt))))))
 
 ;; =============================================================================
 ;; Core Render Loop
@@ -61,35 +78,42 @@
       ;; Save context state
       (.save ctx)
 
-      ;; Apply viewport transform (pan + zoom)
-      (viewport/apply-transform! ctx)
+      (try
+        ;; Apply viewport transform (pan + zoom)
+        (viewport/apply-transform! ctx)
 
-      ;; Render background texture
-      (when (get-in state [:ui :background :visible?])
-        (render/render-background! ctx state))
+        ;; Render background texture
+        (when (get-in state [:ui :background :visible?])
+          (render/render-background! ctx state))
 
-      ;; Render reference image overlay (behind areas/plants)
-      (reference/render! ctx state)
+        ;; Render reference image overlay (behind areas/plants)
+        (reference/render! ctx state)
 
-      ;; Render topographical data overlay
-      (topo/render! ctx state)
+        ;; Render topographical data overlay
+        (topo/render! ctx state)
 
-      ;; Render water simulation overlay
-      (water/render-water! ctx state)
+        ;; Render water simulation overlay
+        (water/render-water! ctx state)
 
-      ;; Render grid
-      (when (get-in state [:ui :grid :visible?])
-        (grid/render! ctx state))
+        ;; Render grid
+        (when (get-in state [:ui :grid :visible?])
+          (grid/render! ctx state))
 
-      ;; Render areas and plants
-      (render/render-areas! ctx state)
-      (render/render-plants! ctx state)
+        ;; Compute visible bounds once for culling
+        (let [bounds (viewport/visible-bounds)]
+          ;; Render areas and plants
+          (render/render-areas! ctx state bounds)
+          (render/render-plants! ctx state bounds))
 
-      ;; Render selection highlights
-      (render/render-selection! ctx state)
+        ;; Render selection highlights
+        (render/render-selection! ctx state)
 
-      ;; Restore context (remove transform)
-      (.restore ctx)
+        (catch :default e
+          (js/console.error "Render error:" e))
+
+        (finally
+          ;; Always restore context to prevent state leakage
+          (.restore ctx)))
 
       ;; Render tool overlay (in screen coordinates)
       (render/render-tool-overlay! ctx state)
@@ -112,11 +136,7 @@
       ;; Track render time
       (let [elapsed (- (.now js/performance) start-time)]
         (reset! last-render-time elapsed)
-        (swap! render-times (fn [times]
-                              (let [new-times (conj times elapsed)]
-                                (if (> (count new-times) 30)
-                                  (vec (rest new-times))
-                                  new-times))))))))
+        (record-render-time! elapsed)))))
 
 (defn schedule-render!
   "Schedule a render on the next animation frame if needed."

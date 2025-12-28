@@ -6,7 +6,8 @@
    - Accessors for reading state
    - Mutation functions for updating state
    - History management for undo/redo"
-  (:require [reagent.core :as r]))
+  (:require [reagent.core :as r]
+            [garden.constants :as const]))
 
 ;; =============================================================================
 ;; Initial State
@@ -149,11 +150,44 @@
 (defn areas [] (:areas @app-state))
 (defn plants [] (:plants @app-state))
 
-(defn find-area [id]
-  (first (filter #(= (:id %) id) (areas))))
+;; Cached index maps for O(1) lookups
+;; These are recomputed only when the underlying collections change
+(defonce ^:private areas-index-cache (atom {:source nil :index {}}))
+(defonce ^:private plants-index-cache (atom {:source nil :index {}}))
 
-(defn find-plant [id]
-  (first (filter #(= (:id %) id) (plants))))
+(defn areas-by-id
+  "Get a map of area-id -> area for O(1) lookups.
+   Cached and recomputed only when areas change."
+  []
+  (let [current-areas (areas)
+        {:keys [source index]} @areas-index-cache]
+    (if (identical? source current-areas)
+      index
+      (let [new-index (into {} (map (juxt :id identity) current-areas))]
+        (reset! areas-index-cache {:source current-areas :index new-index})
+        new-index))))
+
+(defn plants-by-id
+  "Get a map of plant-id -> plant for O(1) lookups.
+   Cached and recomputed only when plants change."
+  []
+  (let [current-plants (plants)
+        {:keys [source index]} @plants-index-cache]
+    (if (identical? source current-plants)
+      index
+      (let [new-index (into {} (map (juxt :id identity) current-plants))]
+        (reset! plants-index-cache {:source current-plants :index new-index})
+        new-index))))
+
+(defn find-area
+  "Find an area by ID. O(1) using cached index."
+  [id]
+  (get (areas-by-id) id))
+
+(defn find-plant
+  "Find a plant by ID. O(1) using cached index."
+  [id]
+  (get (plants-by-id) id))
 
 (defn find-plant-at
   "Find a plant at the given canvas position."
@@ -219,17 +253,44 @@
 
 (def max-history-size 50)
 
-(defn- save-history!
-  "Save current areas/plants state to history before a mutation."
-  []
-  (let [current {:areas (:areas @app-state)
-                 :plants (:plants @app-state)}
-        past (get-in @app-state [:history :past])]
+;; Flag to suppress history during batch operations
+(def ^:private suppress-history? (atom false))
+
+(defn- push-history!
+  "Push a state snapshot to history stack."
+  [pre-state]
+  (let [past (get-in @app-state [:history :past])]
     (swap! app-state
            #(-> %
                 (assoc-in [:history :past]
-                          (vec (take-last max-history-size (conj past current))))
+                          (vec (take-last max-history-size (conj past pre-state))))
                 (assoc-in [:history :future] [])))))
+
+(defn- with-history*
+  "Execute f, saving history only if successful.
+   Captures pre-mutation state, runs f, then pushes history on success."
+  [f]
+  (if @suppress-history?
+    (f) ; Skip history if suppressed (inside batch)
+    (let [pre-state {:areas (:areas @app-state)
+                     :plants (:plants @app-state)}
+          result (f)]
+      (push-history! pre-state)
+      result)))
+
+(defn with-batch-history
+  "Execute f as a batch operation with a single undo entry.
+   All mutations inside f will be grouped into one history entry."
+  [f]
+  (let [pre-state {:areas (:areas @app-state)
+                   :plants (:plants @app-state)}]
+    (reset! suppress-history? true)
+    (try
+      (let [result (f)]
+        (push-history! pre-state)
+        result)
+      (finally
+        (reset! suppress-history? false)))))
 
 (defn can-undo? []
   (seq (get-in @app-state [:history :past])))
@@ -273,50 +334,80 @@
 (defn gen-id []
   (str (random-uuid)))
 
-(defn add-area! [area]
-  (save-history!)
-  (let [area-with-id (if (:id area) area (assoc area :id (gen-id)))]
-    (update-state! [:areas] conj area-with-id)
-    (:id area-with-id)))
+(defn add-area!
+  "Add an area to the garden. Returns the area's id, or nil if invalid.
+   Areas must have at least 3 points to form a valid polygon."
+  [area]
+  (let [points (:points area)]
+    (if (and points (>= (count points) 3))
+      (with-history*
+        #(let [area-with-id (if (:id area) area (assoc area :id (gen-id)))]
+           (update-state! [:areas] conj area-with-id)
+           (:id area-with-id)))
+      (do
+        (js/console.warn "Cannot add area with fewer than 3 points:" (count points))
+        nil))))
 
 (defn update-area! [id updates]
-  (save-history!)
-  (swap! app-state update :areas
-         (fn [areas]
-           (mapv #(if (= (:id %) id) (merge % updates) %) areas))))
+  (with-history*
+    #(swap! app-state update :areas
+            (fn [areas]
+              (mapv (fn [a] (if (= (:id a) id) (merge a updates) a)) areas)))))
 
 (defn remove-area! [id]
-  (save-history!)
-  (swap! app-state update :areas
-         (fn [areas] (filterv #(not= (:id %) id) areas))))
+  (with-history*
+    #(swap! app-state update :areas
+            (fn [areas] (filterv (fn [a] (not= (:id a) id)) areas)))))
 
 ;; =============================================================================
 ;; Plant Mutations
 
 (defn add-plant! [plant]
-  (save-history!)
-  (let [plant-with-id (if (:id plant) plant (assoc plant :id (gen-id)))]
-    (update-state! [:plants] conj plant-with-id)
-    (:id plant-with-id)))
+  (with-history*
+    #(let [plant-with-id (if (:id plant) plant (assoc plant :id (gen-id)))]
+       (update-state! [:plants] conj plant-with-id)
+       (:id plant-with-id))))
 
 (defn add-plants-batch!
   "Add multiple plants in a single undo-able operation."
   [plants]
-  (save-history!)
-  (let [plants-with-ids (mapv #(if (:id %) % (assoc % :id (gen-id))) plants)]
-    (swap! app-state update :plants into plants-with-ids)
-    (mapv :id plants-with-ids)))
+  (with-history*
+    #(let [plants-with-ids (mapv (fn [p] (if (:id p) p (assoc p :id (gen-id)))) plants)]
+       (swap! app-state update :plants into plants-with-ids)
+       (mapv :id plants-with-ids))))
 
 (defn update-plant! [id updates]
-  (save-history!)
-  (swap! app-state update :plants
-         (fn [plants]
-           (mapv #(if (= (:id %) id) (merge % updates) %) plants))))
+  (with-history*
+    #(swap! app-state update :plants
+            (fn [plants]
+              (mapv (fn [p] (if (= (:id p) id) (merge p updates) p)) plants)))))
 
 (defn remove-plant! [id]
-  (save-history!)
-  (swap! app-state update :plants
-         (fn [plants] (filterv #(not= (:id %) id) plants))))
+  (with-history*
+    #(swap! app-state update :plants
+            (fn [plants] (filterv (fn [p] (not= (:id p) id)) plants)))))
+
+(defn clear-all!
+  "Clear all areas and plants in a single undo-able operation."
+  []
+  (with-history*
+    #(swap! app-state assoc :areas [] :plants [])))
+
+(defn remove-areas-batch!
+  "Remove multiple areas in a single undo-able operation."
+  [ids]
+  (let [id-set (set ids)]
+    (with-history*
+      #(swap! app-state update :areas
+              (fn [areas] (filterv (fn [a] (not (contains? id-set (:id a)))) areas))))))
+
+(defn remove-plants-batch!
+  "Remove multiple plants in a single undo-able operation."
+  [ids]
+  (let [id-set (set ids)]
+    (with-history*
+      #(swap! app-state update :plants
+              (fn [plants] (filterv (fn [p] (not (contains? id-set (:id p)))) plants))))))
 
 ;; =============================================================================
 ;; Viewport Mutations
@@ -359,10 +450,9 @@
               (set! (.-onload img)
                     (fn []
                       ;; Calculate scale based on bar-meters setting
-                      ;; Default: 150 image pixels = 50 meters = 5000 cm
+                      ;; Default: bar-image-pixels of image = default-bar-meters in real world
                       (let [bar-meters (get-state :ui :reference-image :bar-meters)
-                            bar-px 150
-                            scale (/ (* (or bar-meters 50) 100) bar-px)
+                            scale (/ (* (or bar-meters const/default-bar-meters) 100) const/bar-image-pixels)
                             img-w (.-width img)
                             img-h (.-height img)
                             ;; Position image centered at grid origin (0,0)
@@ -385,8 +475,7 @@
     (set! (.-onload img)
           (fn []
             (let [bar-meters (get-state :ui :reference-image :bar-meters)
-                  bar-px 150
-                  scale (/ (* (or bar-meters 50) 100) bar-px)]
+                  scale (/ (* (or bar-meters const/default-bar-meters) 100) const/bar-image-pixels)]
               (set-state! [:ui :reference-image :url] url)
               (set-state! [:ui :reference-image :image] img)
               (set-state! [:ui :reference-image :scale] scale)

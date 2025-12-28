@@ -11,7 +11,10 @@
    - 0-9: Select area type (1=water, 2=bed, 3=path, etc.)
    - +/-: Adjust color tolerance"
   (:require [garden.tools.protocol :as p]
-            [garden.state :as state]))
+            [garden.state :as state]
+            [garden.data.area-types :as area-types]
+            [garden.constants :as const]
+            [garden.util.geometry :as geom]))
 
 ;; =============================================================================
 ;; Constants
@@ -31,9 +34,8 @@
   (let [{:keys [image position bar-meters]} ref-img
         [center-x center-y] (or position [0 0])
         [cx cy] canvas-point
-        ;; Scale: 150 image pixels = bar-meters * 100 cm
-        bar-px 150
-        scale (/ (* (or bar-meters 50) 100) bar-px)
+        ;; Scale: bar-image-pixels of image = bar-meters * 100 cm
+        scale (/ (* (or bar-meters const/default-bar-meters) 100) const/bar-image-pixels)
         ;; Calculate top-left from center
         img-w (.-width image)
         img-h (.-height image)
@@ -50,8 +52,7 @@
   [[cx cy] ref-img]
   (let [{:keys [image position bar-meters]} ref-img
         [center-x center-y] (or position [0 0])
-        bar-px 150
-        scale (/ (* (or bar-meters 50) 100) bar-px)
+        scale (/ (* (or bar-meters const/default-bar-meters) 100) const/bar-image-pixels)
         ;; Calculate top-left from center
         img-w (.-width image)
         img-h (.-height image)
@@ -402,25 +403,10 @@
                   (.push stack (+ k w))
                   (recur (inc n)))))))))))
 
-(defn- point-in-polygon?
-  "Check if a point is inside a polygon using ray casting."
-  [[px py] polygon]
-  (let [n (count polygon)]
-    (loop [i 0
-           j (dec n)
-           inside? false]
-      (if (>= i n)
-        inside?
-        (let [[xi yi] (nth polygon i)
-              [xj yj] (nth polygon j)
-              intersect? (and (not= (> yi py) (> yj py))
-                              (< px (+ (/ (* (- xj xi) (- py yi)) (- yj yi)) xi)))]
-          (recur (inc i) i (if intersect? (not inside?) inside?)))))))
-
 (defn- hole-contains-hole?
   "Check if hole-a contains hole-b (by checking if hole-b's first point is inside hole-a)."
   [hole-a hole-b]
-  (point-in-polygon? (first hole-b) hole-a))
+  (geom/point-in-polygon? hole-a (first hole-b)))
 
 (defn- filter-nested-holes
   "Remove holes that are nested inside other holes.
@@ -495,8 +481,7 @@
   [img-points ref-img]
   (let [{:keys [image position bar-meters]} ref-img
         [center-x center-y] (or position [0 0])
-        bar-px 150
-        scale (/ (* (or bar-meters 50) 100) bar-px)
+        scale (/ (* (or bar-meters const/default-bar-meters) 100) const/bar-image-pixels)
         ;; Calculate top-left from center
         img-w (.-width image)
         img-h (.-height image)
@@ -540,30 +525,12 @@
                   canvas-holes (when (seq (:holes contours))
                                  (mapv #(vec (reverse (image->canvas-coords % ref-img)))
                                        (:holes contours)))
-                  type-colors {:water "#4a90d9"
-                               :bed "#8B6914"
-                               :path "#d4a574"
-                               :structure "#607D8B"
-                               :lawn "#7CB342"
-                               :rocks "#9E9E9E"
-                               :hedge "#2E7D32"
-                               :mulch "#5D4037"
-                               :patio "#8D6E63"
-                               :sand "#E8D5B7"}
-                  type-names {:water "Water"
-                              :bed "Garden Bed"
-                              :path "Path"
-                              :structure "Structure"
-                              :lawn "Lawn"
-                              :rocks "Rocks"
-                              :hedge "Hedge"
-                              :mulch "Mulch"
-                              :patio "Patio"
-                              :sand "Sand"}
-                  area-data (cond-> {:name (str (get type-names area-type "Area") " " (inc (count (state/areas))))
+                  area-label (or (area-types/get-label area-type) "Area")
+                  area-color (or (area-types/get-color area-type) "#888888")
+                  area-data (cond-> {:name (str area-label " " (inc (count (state/areas))))
                                      :type area-type
                                      :points canvas-points
-                                     :color (get type-colors area-type "#888888")}
+                                     :color area-color}
                               ;; Only include holes if there are any
                               (seq canvas-holes) (assoc :holes canvas-holes))
                   area-id (state/add-area! area-data)]

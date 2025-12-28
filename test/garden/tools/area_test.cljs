@@ -38,6 +38,6 @@
 
 (deftest close-threshold-test
   (testing "Close threshold is a reasonable pixel value"
-    (is (number? area/close-threshold))
-    (is (> area/close-threshold 0))
-    (is (<= area/close-threshold 50)))) ; Should be a small, usable value
+    (is (number? area/close-threshold-px))
+    (is (> area/close-threshold-px 0))
+    (is (<= area/close-threshold-px 50)))) ; Should be a small, usable value

@@ -42,7 +42,8 @@
    :asset-path "js/compiled"
    :modules {:garden {:init-fn garden.core/init
                       :entries [garden.core]}}
-   :compiler-options {:optimizations :advanced}}
+   :compiler-options {:optimizations :advanced
+                      :source-map true}}
 
   ;; Fast unit tests running on Node.js
   :test

@@ -11,7 +11,8 @@
    - Slope = arctan(sqrt(dzdx² + dzdy²))
    - Aspect = atan2(dzdy, -dzdx) + 180°"
   (:require [garden.topo.core :as topo]
-            [garden.state :as state]))
+            [garden.state :as state]
+            [garden.util.geometry :as geom]))
 
 ;; =============================================================================
 ;; Point-Based Calculations
@@ -111,24 +112,6 @@
 ;; =============================================================================
 ;; Polygon Analysis
 
-(defn- point-in-polygon?
-  "Check if point [px py] is inside polygon defined by points.
-   Uses ray casting algorithm."
-  [[px py] points]
-  (let [n (count points)]
-    (loop [i 0
-           j (dec n)
-           inside? false]
-      (if (>= i n)
-        inside?
-        (let [[xi yi] (nth points i)
-              [xj yj] (nth points j)
-              intersects? (and (not= (> yi py) (> yj py))
-                               (< px (+ xj (* (/ (- yj yi) 1)
-                                              (- (/ (- py yi) (- yj yi))
-                                                 (- xj xi))))))]
-          (recur (inc i) i (if intersects? (not inside?) inside?)))))))
-
 (defn sample-polygon-grid
   "Generate a grid of sample points within a polygon.
    Returns seq of [x y] points."
@@ -143,7 +126,7 @@
       ;; Generate grid points and filter to those inside polygon
       (for [x (range min-x max-x spacing)
             y (range min-y max-y spacing)
-            :when (point-in-polygon? [x y] points)]
+            :when (geom/point-in-polygon? points [x y])]
         [x y]))))
 
 (defn analyze-area-topography
@@ -175,7 +158,12 @@
                          :avg avg-slope
                          :category (slope-category avg-slope)}))
              :aspect (when (seq aspects)
-                       ;; Calculate circular mean for aspect
+                       ;; Calculate circular mean for aspect (compass direction)
+                       ;; Regular averaging fails for angles: mean(1°, 359°) = 180° (wrong!)
+                       ;; Circular mean: convert to unit vectors, sum, find resulting angle
+                       ;; 1. Convert degrees to radians, get sin/cos (unit vector components)
+                       ;; 2. Sum the x (cos) and y (sin) components
+                       ;; 3. Use atan2 to get resulting angle, convert back to degrees
                        (let [sin-sum (reduce + (map #(Math/sin (* % (/ js/Math.PI 180))) aspects))
                              cos-sum (reduce + (map #(Math/cos (* % (/ js/Math.PI 180))) aspects))
                              avg-aspect (mod (* (Math/atan2 sin-sum cos-sum)

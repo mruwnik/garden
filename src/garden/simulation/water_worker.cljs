@@ -2,7 +2,8 @@
   "Web Worker for water flow simulation.
 
    Runs the simulation loop in a background thread for performance.
-   Uses pure JavaScript for the hot loop to minimize overhead.")
+   Uses pure JavaScript for the hot loop to minimize overhead."
+  (:require [garden.simulation.water.physics :as physics]))
 
 ;; =============================================================================
 ;; State
@@ -194,7 +195,7 @@
   (when (:running? @state)
     (simulation-step!)
     (send-water-grid!)
-    (reset! loop-id (js/setTimeout run-loop! 50))))
+    (reset! loop-id (js/setTimeout run-loop! physics/simulation-interval-ms))))
 
 (defn- stop-loop!
   "Stop the simulation loop."

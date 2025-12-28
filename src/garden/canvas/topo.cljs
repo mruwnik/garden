@@ -38,6 +38,13 @@
 ;; Max pixels for full-extent cache (to avoid memory issues)
 (def ^:private max-full-cache-pixels 4194304)  ; 2048x2048
 
+;; Contour line cache - stores calculated segment data
+(defonce ^:private contour-cache
+  (atom {:segments nil        ; Map of level -> [[x1 y1 x2 y2] ...]
+         :interval nil        ; Effective interval used
+         :data-hash nil       ; Hash of elevation data
+         :lod-factor nil}))   ; LOD factor (1 or 5) based on zoom
+
 ;; Absolute elevation range for :absolute color scale mode
 (def ^:private absolute-min-elevation -300)
 (def ^:private absolute-max-elevation 8000)
@@ -408,73 +415,120 @@
 ;; =============================================================================
 ;; Contour Lines
 
+(defn- compute-contour-segments
+  "Calculate all contour segments using marching squares. Returns map of level -> segments."
+  [elevation-data width height resolution min-x min-y interval min-elev max-elev]
+  (let [start-level (* (Math/ceil (/ min-elev interval)) interval)
+        levels (take-while #(<= % max-elev)
+                           (iterate #(+ % interval) start-level))]
+    (into {}
+          (for [level levels]
+            [level
+             (loop [segments []
+                    row 0]
+               (if (>= row (dec height))
+                 segments
+                 (recur
+                  (loop [segs segments
+                         col 0]
+                    (if (>= col (dec width))
+                      segs
+                      (let [idx00 (+ col (* row width))
+                            idx10 (+ (inc col) (* row width))
+                            idx01 (+ col (* (inc row) width))
+                            idx11 (+ (inc col) (* (inc row) width))
+                            e00 (aget elevation-data idx00)
+                            e10 (aget elevation-data idx10)
+                            e01 (aget elevation-data idx01)
+                            e11 (aget elevation-data idx11)]
+                        (if (or (js/isNaN e00) (js/isNaN e10) (js/isNaN e01) (js/isNaN e11))
+                          (recur segs (inc col))
+                          (let [b00 (if (>= e00 level) 1 0)
+                                b10 (if (>= e10 level) 1 0)
+                                b01 (if (>= e01 level) 1 0)
+                                b11 (if (>= e11 level) 1 0)
+                                case-idx (+ (* b00 8) (* b10 4) (* b11 2) b01)
+                                cx (+ min-x (* col resolution))
+                                cy (+ min-y (* row resolution))
+                                interp (fn [ea eb]
+                                         (if (= ea eb) 0.5 (/ (- level ea) (- eb ea))))
+                                top-x (+ cx (* (interp e00 e10) resolution))
+                                top-y cy
+                                bottom-x (+ cx (* (interp e01 e11) resolution))
+                                bottom-y (+ cy resolution)
+                                left-x cx
+                                left-y (+ cy (* (interp e00 e01) resolution))
+                                right-x (+ cx resolution)
+                                right-y (+ cy (* (interp e10 e11) resolution))
+                                new-segs (case case-idx
+                                           (1 14) [[left-x left-y bottom-x bottom-y]]
+                                           (2 13) [[bottom-x bottom-y right-x right-y]]
+                                           (3 12) [[left-x left-y right-x right-y]]
+                                           (4 11) [[top-x top-y right-x right-y]]
+                                           (6 9)  [[top-x top-y bottom-x bottom-y]]
+                                           (7 8)  [[left-x left-y top-x top-y]]
+                                           5 [[left-x left-y top-x top-y]
+                                              [bottom-x bottom-y right-x right-y]]
+                                           10 [[top-x top-y right-x right-y]
+                                               [left-x left-y bottom-x bottom-y]]
+                                           nil)]
+                            (recur (if new-segs (into segs new-segs) segs) (inc col)))))))
+                  (inc row))))]))))
+
+(defn- get-contour-data-hash
+  "Create a hash to detect elevation data changes."
+  [elevation-data]
+  (when elevation-data
+    ;; Sample a few values to create a quick hash
+    (let [len (.-length elevation-data)]
+      (when (pos? len)
+        (+ (aget elevation-data 0)
+           (aget elevation-data (quot len 2))
+           (aget elevation-data (dec len))
+           len)))))
+
 (defn render-contours!
   "Render contour lines at regular intervals using marching squares.
-   Draws segments with round caps so adjacent segments connect visually."
+   Uses caching to avoid recalculating on every frame."
   [ctx state]
   (let [topo-state (:topo state)
         {:keys [elevation-data bounds resolution width height contours]} topo-state
         {:keys [visible? interval color]} contours
         zoom (get-in state [:viewport :zoom])]
     (when (and visible? elevation-data bounds resolution (pos? interval))
-      (let [effective-interval (if (< zoom 0.2)
-                                 (* interval 5)
-                                 interval)
+      (let [lod-factor (if (< zoom 0.2) 5 1)
+            effective-interval (* interval lod-factor)
             [min-elev max-elev] (topo/elevation-range)
-            start-level (* (Math/ceil (/ min-elev effective-interval)) effective-interval)
-            levels (take-while #(<= % max-elev)
-                               (iterate #(+ % effective-interval) start-level))
-            {:keys [min-x min-y]} bounds]
+            {:keys [min-x min-y]} bounds
+            data-hash (get-contour-data-hash elevation-data)
+            ;; Check if cache is valid
+            cache @contour-cache
+            cache-valid? (and (:segments cache)
+                              (= (:interval cache) effective-interval)
+                              (= (:data-hash cache) data-hash)
+                              (= (:lod-factor cache) lod-factor))
+            ;; Get or compute segments
+            segments (if cache-valid?
+                       (:segments cache)
+                       (let [segs (compute-contour-segments
+                                   elevation-data width height resolution
+                                   min-x min-y effective-interval min-elev max-elev)]
+                         (reset! contour-cache
+                                 {:segments segs
+                                  :interval effective-interval
+                                  :data-hash data-hash
+                                  :lod-factor lod-factor})
+                         segs))]
+        ;; Draw cached segments
         (.save ctx)
         (set! (.-strokeStyle ctx) (or color "#8B4513"))
         (set! (.-lineWidth ctx) (/ 2 zoom))
         (set! (.-lineCap ctx) "round")
-        ;; Draw all contour levels
-        (doseq [level levels]
+        (doseq [[_level level-segments] segments]
           (.beginPath ctx)
-          (dotimes [row (dec height)]
-            (dotimes [col (dec width)]
-              (let [idx00 (+ col (* row width))
-                    idx10 (+ (inc col) (* row width))
-                    idx01 (+ col (* (inc row) width))
-                    idx11 (+ (inc col) (* (inc row) width))
-                    e00 (aget elevation-data idx00)
-                    e10 (aget elevation-data idx10)
-                    e01 (aget elevation-data idx01)
-                    e11 (aget elevation-data idx11)]
-                (when (and (not (js/isNaN e00))
-                           (not (js/isNaN e10))
-                           (not (js/isNaN e01))
-                           (not (js/isNaN e11)))
-                  (let [b00 (if (>= e00 level) 1 0)
-                        b10 (if (>= e10 level) 1 0)
-                        b01 (if (>= e01 level) 1 0)
-                        b11 (if (>= e11 level) 1 0)
-                        case-idx (+ (* b00 8) (* b10 4) (* b11 2) b01)
-                        cx (+ min-x (* col resolution))
-                        cy (+ min-y (* row resolution))
-                        interp-x (fn [ea eb]
-                                   (if (= ea eb) 0.5 (/ (- level ea) (- eb ea))))
-                        top-x (+ cx (* (interp-x e00 e10) resolution))
-                        top-y cy
-                        bottom-x (+ cx (* (interp-x e01 e11) resolution))
-                        bottom-y (+ cy resolution)
-                        left-x cx
-                        left-y (+ cy (* (interp-x e00 e01) resolution))
-                        right-x (+ cx resolution)
-                        right-y (+ cy (* (interp-x e10 e11) resolution))]
-                    (case case-idx
-                      (1 14) (do (.moveTo ctx left-x left-y) (.lineTo ctx bottom-x bottom-y))
-                      (2 13) (do (.moveTo ctx bottom-x bottom-y) (.lineTo ctx right-x right-y))
-                      (3 12) (do (.moveTo ctx left-x left-y) (.lineTo ctx right-x right-y))
-                      (4 11) (do (.moveTo ctx top-x top-y) (.lineTo ctx right-x right-y))
-                      (6 9)  (do (.moveTo ctx top-x top-y) (.lineTo ctx bottom-x bottom-y))
-                      (7 8)  (do (.moveTo ctx left-x left-y) (.lineTo ctx top-x top-y))
-                      5 (do (.moveTo ctx left-x left-y) (.lineTo ctx top-x top-y)
-                            (.moveTo ctx bottom-x bottom-y) (.lineTo ctx right-x right-y))
-                      10 (do (.moveTo ctx top-x top-y) (.lineTo ctx right-x right-y)
-                             (.moveTo ctx left-x left-y) (.lineTo ctx bottom-x bottom-y))
-                      nil))))))
+          (doseq [[x1 y1 x2 y2] level-segments]
+            (.moveTo ctx x1 y1)
+            (.lineTo ctx x2 y2))
           (.stroke ctx))
         (.restore ctx)))))
 

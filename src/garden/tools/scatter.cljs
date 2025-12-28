@@ -6,6 +6,7 @@
    Press 0-9 to set target plant count (0=100, 1-9=10-90)."
   (:require [garden.tools.protocol :as p]
             [garden.state :as state]
+            [garden.data.plants :as plants]
             [garden.ui.panels.library :as library]))
 
 (defn calculate-grid-dimensions
@@ -37,8 +38,8 @@
 (defn- scatter-plants!
   "Scatter plants in the given rectangle."
   [species-id min-x min-y max-x max-y count-target]
-  (let [;; Get plant spacing from library
-        plant-data (first (filter #(= (:id %) species-id) library/sample-plants))
+  (let [;; Get plant spacing from library (O(1) lookup)
+        plant-data (plants/get-plant species-id)
         spacing (or (:spacing-cm plant-data) 50)
         width (- max-x min-x)
         height (- max-y min-y)
@@ -87,7 +88,7 @@
       (when start
         ;; Get selected plant species
         (let [species-id (or (get-in @state/app-state [:tool :state :species-id])
-                             (first (map :id library/sample-plants)))]
+                             (first (map :id plants/plant-library)))]
           (when species-id
             (let [min-x (min (first start) (first point))
                   max-x (max (first start) (first point))

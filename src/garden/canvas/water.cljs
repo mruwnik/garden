@@ -22,6 +22,19 @@
 ;; =============================================================================
 ;; Cache Rendering
 
+(defn- get-or-create-canvas!
+  "Get cached canvas or create new one if dimensions changed."
+  [width height]
+  (let [cached (:canvas @water-cache)]
+    (if (and cached
+             (= (.-width cached) width)
+             (= (.-height cached) height))
+      cached
+      (let [canvas (js/document.createElement "canvas")]
+        (set! (.-width canvas) width)
+        (set! (.-height canvas) height)
+        canvas))))
+
 (defn- render-water-cache!
   "Render water to an offscreen canvas."
   []
@@ -29,12 +42,10 @@
         water-grid (water-sim/water-grid)
         [grid-w grid-h] (water-sim/grid-dimensions)]
     (when (and topo water-grid (pos? grid-w) (pos? grid-h))
-      (let [{:keys [bounds resolution]} topo
+      (let [{:keys [bounds]} topo
             {:keys [min-x min-y max-x max-y]} bounds
-            ;; Create canvas matching grid dimensions
-            canvas (js/document.createElement "canvas")
-            _ (set! (.-width canvas) grid-w)
-            _ (set! (.-height canvas) grid-h)
+            ;; Reuse cached canvas if dimensions match
+            canvas (get-or-create-canvas! grid-w grid-h)
             ctx (.getContext canvas "2d")
             image-data (.createImageData ctx grid-w grid-h)
             pixels (.-data image-data)

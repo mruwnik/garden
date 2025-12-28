@@ -19,16 +19,25 @@
 ;; =============================================================================
 ;; Grid Cell Access
 
+(defonce ^:private nan-warning-shown? (atom false))
+
 (defn get-cell
   "Get elevation at grid cell [row col] from typed array.
-   Returns nil if out of bounds or NaN."
+   Returns nil if out of bounds or NaN (no-data value in GeoTIFF)."
   [elevation-data width height row col]
   (when (and elevation-data
              (>= row 0) (< row height)
              (>= col 0) (< col width))
     (let [idx (+ col (* row width))
           v (aget elevation-data idx)]
-      (when-not (js/isNaN v) v))))
+      (if (js/isNaN v)
+        (do
+          ;; Log once if NaN values are encountered (may indicate corrupt data)
+          (when-not @nan-warning-shown?
+            (reset! nan-warning-shown? true)
+            (js/console.warn "GeoTIFF contains NaN values (no-data). This is normal for partial coverage."))
+          nil)
+        v))))
 
 ;; =============================================================================
 ;; Coordinate Conversion

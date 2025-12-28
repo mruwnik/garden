@@ -6,18 +6,29 @@
    - Row: Click and drag to create a row of evenly spaced plants
    Press 'r' to toggle between modes."
   (:require [garden.tools.protocol :as proto]
-            [garden.state :as state]))
+            [garden.state :as state]
+            [garden.util.geometry :as geom]
+            [garden.data.plants :as plants]))
 
-(def ^:private default-spacing 40) ; Default spacing between plants in a row
+(def ^:private fallback-spacing 50) ; Fallback spacing if plant not found (cm)
 
-(defn- distance [[x1 y1] [x2 y2]]
-  (Math/sqrt (+ (* (- x2 x1) (- x2 x1))
-                (* (- y2 y1) (- y2 y1)))))
+(defn- get-default-species-id
+  "Get a valid default species ID from the plant library."
+  []
+  (:id (first plants/plant-library)))
+
+(defn- get-species-spacing
+  "Get the spacing for a species from the plant library.
+   Returns spacing-cm from plant data, or fallback if not found."
+  [species-id]
+  (if-let [plant-data (plants/get-plant species-id)]
+    (or (:spacing-cm plant-data) fallback-spacing)
+    fallback-spacing))
 
 (defn- calculate-row-positions
   "Calculate evenly spaced positions along a line from start to end."
   [start end spacing]
-  (let [dist (distance start end)
+  (let [dist (geom/points-distance start end)
         count (max 1 (Math/floor (/ dist spacing)))
         [x1 y1] start
         [x2 y2] end
@@ -56,7 +67,7 @@
         ;; Start row drag
         (state/update-tool-state! assoc :drag-start point :row-preview [point])
         ;; Single mode: place immediately
-        (let [species-id (or (:species-id tool-state) "generic")
+        (let [species-id (or (:species-id tool-state) (get-default-species-id))
               plant-id (state/add-plant! {:species-id species-id
                                           :position point
                                           :planted-date (js/Date.)
@@ -69,7 +80,9 @@
           drag-start (:drag-start tool-state)]
       (if (and (= mode :row) drag-start)
         ;; Update row preview
-        (let [positions (calculate-row-positions drag-start point default-spacing)]
+        (let [species-id (or (:species-id tool-state) (get-default-species-id))
+              spacing (get-species-spacing species-id)
+              positions (calculate-row-positions drag-start point spacing)]
           (state/update-tool-state! assoc
                                     :preview-position point
                                     :row-preview positions))
@@ -80,10 +93,11 @@
     (let [tool-state (state/tool-state)
           mode (:mode tool-state)
           drag-start (:drag-start tool-state)
-          species-id (or (:species-id tool-state) "generic")]
+          species-id (or (:species-id tool-state) (get-default-species-id))]
       (when (and (= mode :row) drag-start)
         ;; Place all plants in the row as a batch (single undo operation)
-        (let [positions (calculate-row-positions drag-start point default-spacing)
+        (let [spacing (get-species-spacing species-id)
+              positions (calculate-row-positions drag-start point spacing)
               plants (mapv (fn [pos]
                              {:species-id species-id
                               :position pos

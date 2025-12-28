@@ -1,6 +1,7 @@
 (ns garden.ui.panels.reference
   "Reference image settings modal."
-  (:require [garden.state :as state]))
+  (:require [garden.state :as state]
+            [garden.constants :as const]))
 
 (defn- load-image-from-file! [file]
   (let [reader (js/FileReader.)]
@@ -10,12 +11,21 @@
                   img (js/Image.)]
               (set! (.-onload img)
                     (fn []
-                      (state/set-state! [:ui :reference-image :url] data-url)
-                      (state/set-state! [:ui :reference-image :image] img)
-                      ;; Position [0,0] means image center at grid origin
-                      (state/set-state! [:ui :reference-image :position] [0 0])
-                      (state/set-state! [:ui :reference-image :visible?] true)))
+                      ;; Batch all state updates into one to avoid multiple re-renders
+                      (state/update-state! [:ui :reference-image]
+                                           merge {:url data-url
+                                                  :image img
+                                                  :position [0 0]  ; Center at grid origin
+                                                  :visible? true})))
+              (set! (.-onerror img)
+                    (fn [_]
+                      (js/console.error "Failed to load reference image")
+                      (js/alert "Failed to load image. Please try a different file.")))
               (set! (.-src img) data-url))))
+    (set! (.-onerror reader)
+          (fn [_]
+            (js/console.error "Failed to read file")
+            (js/alert "Failed to read file. Please try again.")))
     (.readAsDataURL reader file)))
 
 (defn reference-modal
@@ -56,20 +66,19 @@
              :style {:margin-right "8px"}}]
            "Show reference image"]]
 
-         ;; Scale - how many meters per 150 image pixels
+         ;; Scale - how many meters per bar-image-pixels
          [:div.form-field
           [:label "Image Scale"]
           (let [img-w (.-width image)
                 img-h (.-height image)
-                bar-m (or (:bar-meters ref-img) 50)
+                bar-m (or (:bar-meters ref-img) const/default-bar-meters)
                 ;; Scale derived from bar
-                bar-px 150
-                eff-scale (/ (* bar-m 100) bar-px)
+                eff-scale (/ (* bar-m 100) const/bar-image-pixels)
                 width-m (/ (* img-w eff-scale) 100)
                 height-m (/ (* img-h eff-scale) 100)]
             [:div
              [:div {:style {:color "#666" :font-size "12px" :margin-bottom "6px"}}
-              "150 image pixels ="]
+              (str const/bar-image-pixels " image pixels =")]
              [:div {:style {:display "flex" :gap "8px" :align-items "center" :margin-bottom "8px"}}
               [:input.text-input
                {:type "number"

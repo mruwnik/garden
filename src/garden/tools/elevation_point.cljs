@@ -18,14 +18,12 @@
    - Escape: Cancel current placement"
   (:require [garden.tools.protocol :as p]
             [garden.state :as state]
-            [garden.util.geometry :as geom]))
+            [garden.util.geometry :as geom]
+            [garden.constants :as const]))
 
 ;; =============================================================================
 ;; Constants
-
-(def ^:private point-hit-radius
-  "Click radius for hitting existing points (in canvas units)."
-  15)
+;; Note: point-hit-radius is defined in garden.constants
 
 ;; =============================================================================
 ;; Hit Detection
@@ -34,7 +32,7 @@
   "Find a topo point near the given canvas position."
   [point]
   (let [zoom (state/zoom)
-        hit-radius (/ point-hit-radius zoom)
+        hit-radius (/ const/point-hit-radius zoom)
         points (state/topo-points)]
     (first (filter (fn [tp]
                      (< (geom/points-distance (:position tp) point) hit-radius))

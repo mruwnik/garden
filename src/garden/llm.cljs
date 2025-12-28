@@ -15,6 +15,9 @@
    - set_zoom, pan_to"
   (:require [garden.state :as state]
             [garden.ui.panels.library :as library]
+            [garden.data.area-types :as area-types]
+            [garden.data.plants :as plants]
+            [garden.tools.scatter :as scatter]
             [clojure.string :as str]))
 
 ;; =============================================================================
@@ -258,15 +261,14 @@
 
 (defn- execute-add-plants-row [{:keys [species_id start_x start_y count spacing direction stage]}]
   (let [dir (or direction "horizontal")
-        plant-ids
-        (doall
-         (for [i (range count)]
-           (let [x (if (= dir "horizontal") (+ start_x (* i spacing)) start_x)
-                 y (if (= dir "vertical") (+ start_y (* i spacing)) start_y)]
-             (state/add-plant! {:species-id species_id
-                                :position [x y]
-                                :stage (keyword (or stage "mature"))
-                                :planted-date (js/Date.)}))))]
+        plants (for [i (range count)]
+                 (let [x (if (= dir "horizontal") (+ start_x (* i spacing)) start_x)
+                       y (if (= dir "vertical") (+ start_y (* i spacing)) start_y)]
+                   {:species-id species_id
+                    :position [x y]
+                    :stage (keyword (or stage "mature"))
+                    :planted-date (js/Date.)}))
+        plant-ids (state/add-plants-batch! (vec plants))]
     {:success true
      :message (str "Planted " count " " species_id " plants in a " dir " row")
      :plant_ids (vec plant-ids)}))
@@ -276,16 +278,12 @@
         matching (filter #(= (:name %) name) areas)]
     (if (seq matching)
       (do
-        (doseq [area matching]
-          (state/remove-area! (:id area)))
+        (state/remove-areas-batch! (mapv :id matching))
         {:success true :message (str "Removed area '" name "'")})
       {:success false :message (str "No area found with name '" name "'")})))
 
 (defn- execute-clear-garden [_]
-  (doseq [area (state/areas)]
-    (state/remove-area! (:id area)))
-  (doseq [plant (state/plants)]
-    (state/remove-plant! (:id plant)))
+  (state/clear-all!)
   {:success true :message "Cleared all areas and plants from the garden"})
 
 (defn- execute-remove-plant [{:keys [plant_id]}]
@@ -304,42 +302,31 @@
                                  (>= y min_y) (<= y max_y))))
                         plants)
         removed-count (count in-area)]
-    (doseq [plant in-area]
-      (state/remove-plant! (:id plant)))
+    (when (seq in-area)
+      (state/remove-plants-batch! (mapv :id in-area)))
     {:success true
      :message (str "Removed " removed-count " plant(s) from area ("
                    min_x "," min_y ") to (" max_x "," max_y ")")}))
 
 (defn- execute-scatter-plants [{:keys [species_id count min_x min_y max_x max_y stage]}]
-  (let [;; Get plant spacing from library
-        plant-data (first (filter #(= (:id %) species_id) library/sample-plants))
+  (let [;; Get plant spacing from library (O(1) lookup)
+        plant-data (plants/get-plant species_id)
         spacing (or (:spacing-cm plant-data) 50)
         ;; Calculate how many can actually fit with proper spacing
         width (- max_x min_x)
         height (- max_y min_y)
-        cols (max 1 (int (/ width spacing)))
-        rows (max 1 (int (/ height spacing)))
-        max-plants (* cols rows)
-        actual-count (min count max-plants)
-        ;; Generate positions with spacing + jitter
+        {:keys [cols rows actual-count]} (scatter/calculate-grid-dimensions width height spacing count)
+        ;; Generate positions with spacing + jitter (reuse scatter.cljs functions)
         positions (take actual-count
                         (shuffle
-                         (for [col (range cols)
-                               row (range rows)]
-                           (let [base-x (+ min_x (* col spacing) (/ spacing 2))
-                                 base-y (+ min_y (* row spacing) (/ spacing 2))
-                                 ;; Add random jitter (up to 30% of spacing)
-                                 jitter (* spacing 0.3)
-                                 x (+ base-x (- (rand jitter) (/ jitter 2)))
-                                 y (+ base-y (- (rand jitter) (/ jitter 2)))]
-                             [x y]))))
-        plant-ids
-        (doall
-         (for [[x y] positions]
-           (state/add-plant! {:species-id species_id
-                              :position [x y]
-                              :stage (keyword (or stage "mature"))
-                              :planted-date (js/Date.)})))]
+                         (scatter/generate-grid-positions min_x min_y spacing cols rows 0.3)))
+        plants (mapv (fn [[x y]]
+                       {:species-id species_id
+                        :position [x y]
+                        :stage (keyword (or stage "mature"))
+                        :planted-date (js/Date.)})
+                     positions)
+        plant-ids (state/add-plants-batch! plants)]
     {:success true
      :message (str "Scattered " (clojure.core/count plant-ids) " " species_id
                    " plants (spacing: " spacing "cm, requested: " count ")")
@@ -385,7 +372,7 @@
         area-id (state/add-area! {:name name
                                   :type :path
                                   :points polygon-points
-                                  :color "#d4a574"})]
+                                  :color (area-types/get-color :path)})]
     {:success true
      :message (str "Created path '" name "' with " n " waypoints")
      :area_id area-id}))
@@ -395,7 +382,7 @@
         area-id (state/add-area! {:name name
                                   :type :water
                                   :points parsed-points
-                                  :color "#4a90d9"})]
+                                  :color (area-types/get-color :water)})]
     {:success true
      :message (str "Created water feature '" name "' with " (clojure.core/count points) " vertices")
      :area_id area-id}))
@@ -442,12 +429,12 @@
                  (state/plants))})
 
 (defn- execute-list-species [{:keys [type]}]
-  (let [type-kw (when type (keyword type))
-        plants (cond->> library/sample-plants
-                 type-kw (filter #(= (:type %) type-kw)))]
+  (let [category-kw (when type (keyword type))
+        plants (cond->> plants/plant-library
+                 category-kw (filter #(= (:category %) category-kw)))]
     {:species (mapv (fn [p] {:id (:id p)
                              :common_name (:common-name p)
-                             :type (name (:type p))
+                             :type (name (:category p))
                              :spacing_cm (:spacing-cm p)})
                     plants)}))
 

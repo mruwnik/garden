@@ -16,17 +16,20 @@
       (geom/snap-to-grid point spacing)
       point)))
 
-(def close-threshold 15) ; Pixels to close polygon
+(def close-threshold-px 15) ; Screen pixels to close polygon
 
 (defn close-to-first?
   "Check if point is close enough to the first point to close the polygon.
    Returns true if points has >= 3 vertices and point is within close-threshold
-   of the first point."
+   of the first point. Threshold scales with zoom for consistent feel."
   [points point]
   (when (>= (count points) 3)
     (let [first-point (first points)
+          zoom (state/zoom)
+          ;; Scale threshold by zoom so it's consistent in screen space
+          threshold (/ close-threshold-px zoom)
           dist (geom/points-distance first-point point)]
-      (< dist close-threshold))))
+      (< dist threshold))))
 
 (defn- finish-area!
   "Complete the area and add it to state."

@@ -2,13 +2,8 @@
   "Reference image overlay for tracing.
 
    Renders a scaled reference image (e.g., satellite imagery) that users
-   can trace over to create garden areas. Includes an adaptive scale bar.")
-
-;; =============================================================================
-;; Constants
-
-;; Fixed bar size in image pixels (roughly 2cm when viewing full image)
-(def ^:private bar-image-pixels 150)
+   can trace over to create garden areas. Includes an adaptive scale bar."
+  (:require [garden.constants :as const]))
 
 ;; =============================================================================
 ;; Image Rendering
@@ -22,10 +17,10 @@
                (:image ref-img))
       (let [{:keys [image position opacity bar-meters]} ref-img
             [cx cy] (or position [0 0])  ; center position
-            bar-m (or bar-meters 50)
+            bar-m (or bar-meters const/default-bar-meters)
             ;; Scale: bar-image-pixels of the image = bar-meters in real world
             ;; So each image pixel = (bar-meters * 100 cm) / bar-image-pixels
-            effective-scale (/ (* bar-m 100) bar-image-pixels)
+            effective-scale (/ (* bar-m 100) const/bar-image-pixels)
             w (* (.-width image) effective-scale)
             h (* (.-height image) effective-scale)
             ;; Calculate top-left from center
@@ -41,8 +36,9 @@
 ;; Scale Bar
 
 (def ^:private nice-distances
-  "Nice round distances for scale bar (in meters)"
-  [1 2 5 10 20 50 100 200 500 1000])
+  "Nice round distances for scale bar (in meters).
+   Includes small values for high zoom levels."
+  [0.25 0.5 1 2 5 10 20 50 100 200 500 1000])
 
 (defn- pick-nice-distance
   "Pick a nice round distance that results in a bar close to target-pixels wide."

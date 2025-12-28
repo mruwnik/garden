@@ -2,6 +2,7 @@
   "Unified ground data modal - combines reference imagery and topographical data."
   (:require [garden.state :as state]
             [garden.topo.geotiff :as geotiff]
+            [garden.constants :as const]
             [reagent.core :as r]))
 
 ;; Local state for UI
@@ -24,11 +25,21 @@
                   img (js/Image.)]
               (set! (.-onload img)
                     (fn []
-                      (state/set-state! [:ui :reference-image :url] data-url)
-                      (state/set-state! [:ui :reference-image :image] img)
-                      (state/set-state! [:ui :reference-image :position] [0 0])
-                      (state/set-state! [:ui :reference-image :visible?] true)))
+                      ;; Batch all state updates into single swap
+                      (state/update-state! [:ui :reference-image]
+                                           merge {:url data-url
+                                                  :image img
+                                                  :position [0 0]
+                                                  :visible? true})))
+              (set! (.-onerror img)
+                    (fn [_]
+                      (js/console.error "Failed to load reference image")
+                      (js/alert "Failed to load image. Please try a different file.")))
               (set! (.-src img) data-url))))
+    (set! (.-onerror reader)
+          (fn [_]
+            (js/console.error "Failed to read file")
+            (js/alert "Failed to read file. Please try again.")))
     (.readAsDataURL reader file)))
 
 (defn- extract-rgb-from-geotiff!
@@ -66,10 +77,12 @@
               img (js/Image.)]
           (set! (.-onload img)
                 (fn []
-                  (state/set-state! [:ui :reference-image :url] data-url)
-                  (state/set-state! [:ui :reference-image :image] img)
-                  (state/set-state! [:ui :reference-image :position] [0 0])
-                  (state/set-state! [:ui :reference-image :visible?] true)
+                  ;; Batch all state updates into single swap
+                  (state/update-state! [:ui :reference-image]
+                                       merge {:url data-url
+                                              :image img
+                                              :position [0 0]
+                                              :visible? true})
                   (js/console.log "Extracted RGB image from GeoTIFF:" width "x" height)))
           (set! (.-src img) data-url))))))
 
@@ -167,9 +180,8 @@
          [:div {:style {:font-size "12px" :color "#666"}}
           (when has-image?
             (let [img (:image ref-img)
-                  bar-m (or (:bar-meters ref-img) 50)
-                  bar-px 150
-                  eff-scale (/ (* bar-m 100) bar-px)
+                  bar-m (or (:bar-meters ref-img) const/default-bar-meters)
+                  eff-scale (/ (* bar-m 100) const/bar-image-pixels)
                   width-m (/ (* (.-width img) eff-scale) 100)
                   height-m (/ (* (.-height img) eff-scale) 100)]
               [:div (str "Image: " (.-width img) "×" (.-height img) "px → "

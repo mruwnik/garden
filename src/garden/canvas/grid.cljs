@@ -3,7 +3,8 @@
 
    Draws a measurement grid that adapts its density based on zoom level,
    with optional labels showing distances in meters."
-  (:require [garden.canvas.viewport :as viewport]))
+  (:require [garden.canvas.viewport :as viewport]
+            [garden.constants :as const]))
 
 ;; =============================================================================
 ;; LOD Calculations
@@ -51,7 +52,7 @@
         num-v-lines (/ (- end-x start-x) spacing)
         num-h-lines (/ (- end-y start-y) spacing)]
     ;; Skip if way too many lines would be drawn
-    (when (and (< num-v-lines 500) (< num-h-lines 500))
+    (when (and (< num-v-lines const/max-grid-lines) (< num-h-lines const/max-grid-lines))
       (.save ctx)
       (set! (.-strokeStyle ctx) "#ddd")
       (set! (.-lineWidth ctx) (/ 0.5 zoom))

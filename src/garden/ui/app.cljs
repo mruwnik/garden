@@ -16,6 +16,8 @@
             [garden.canvas.terrain3d :as terrain3d]
             [garden.topo.core :as topo]
             [garden.tools.protocol :as tools]
+            [garden.constants :as const]
+            [garden.data.plants :as plants]
             [garden.ui.toolbar :as toolbar]
             [garden.ui.panels.library :as library]
             [garden.ui.panels.properties :as properties]
@@ -126,8 +128,11 @@
 
             :on-mouse-leave
             (fn [_]
-              (state/set-state! [:ui :hover :plant-id] nil)
-              (state/set-state! [:ui :mouse :canvas-pos] nil))
+              ;; Batch both state updates into one swap
+              (swap! state/app-state
+                     #(-> %
+                          (assoc-in [:ui :hover :plant-id] nil)
+                          (assoc-in [:ui :mouse :canvas-pos] nil))))
 
             ;; Note: wheel handler added manually in component-did-mount
             ;; with {passive: false} to allow preventDefault
@@ -145,10 +150,11 @@
             (fn [e]
               (.preventDefault e)
               (when-let [el @canvas-ref]
-                (let [species-id (.getData (.-dataTransfer e) "text/plain")
+                (let [species-id (.getData (.-dataTransfer e) const/species-drag-mime-type)
                       screen-point (get-canvas-point e el)
                       canvas-point (viewport/screen->canvas screen-point)]
-                  (when (seq species-id)
+                  ;; Validate species exists in library before creating plant
+                  (when (and (seq species-id) (plants/get-plant species-id))
                     (let [plant-id (state/add-plant! {:species-id species-id
                                                       :position canvas-point
                                                       :planted-date (js/Date.)
@@ -227,7 +233,7 @@
      [:span.status-separator "|"]
      [:span.status-item (str "Zoom: " (Math/round (* zoom 100)) "%")]
      [:span.status-separator "|"]
-     [:span.status-item (str "Tool: " (name active-tool))]]))
+     [:span.status-item (str "Tool: " (if active-tool (name active-tool) "--"))]]))
 
 ;; =============================================================================
 ;; Loading Overlay

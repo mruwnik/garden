@@ -58,7 +58,7 @@
   "Handle water grid updates from the worker."
   [grid-data]
   (reset! water-grid grid-data)
-  (state/set-state! [:water-sim :last-update] (.now js/Date)))
+  (state/set-state! [:water-sim :last-update] (js/Date.now)))
 
 (defn- on-worker-ready
   "Handle worker ready signal."
@@ -83,6 +83,7 @@
   "Start the water simulation (flowing/draining only, no rain)."
   []
   (init!)
+  ;; Send elevation data to initialize worker if it's not yet ready
   (when-not (worker/ready?)
     (send-elevation-data!))
   (worker/send! :start)
@@ -92,20 +93,21 @@
   "Stop the water simulation completely."
   []
   (worker/send! :stop)
-  (state/set-state! [:water-sim :running?] false)
-  (state/set-state! [:water-sim :raining?] false))
+  ;; Batch both state updates
+  (state/update-state! [:water-sim] merge {:running? false :raining? false}))
 
 (defn start-rain!
   "Start rain (also starts simulation if not running)."
   []
   (init!)
+  ;; Send elevation data to initialize worker if it's not yet ready
   (when-not (worker/ready?)
     (send-elevation-data!))
   (send-params!)
   (worker/send! :start-rain)
   (worker/send! :start)
-  (state/set-state! [:water-sim :running?] true)
-  (state/set-state! [:water-sim :raining?] true))
+  ;; Batch both state updates
+  (state/update-state! [:water-sim] merge {:running? true :raining? true}))
 
 (defn stop-rain!
   "Stop rain but keep simulation running for drainage."

@@ -11,12 +11,12 @@
   (:require [garden.tools.protocol :as proto]
             [garden.state :as state]
             [garden.util.geometry :as geom]
-            [garden.canvas.render :as render]))
+            [garden.canvas.render :as render]
+            [garden.constants :as const]))
 
 ;; =============================================================================
 ;; Constants
-
-(def ^:private vertex-hit-radius 12)
+;; Note: vertex-hit-radius is defined in garden.constants
 
 ;; Edge hit distance for inserting new points
 (def ^:private edge-hit-distance 8)
@@ -31,7 +31,7 @@
   (let [selection (state/selection)
         zoom (state/zoom)
         ;; Adjust hit radius for zoom level
-        hit-radius (/ vertex-hit-radius zoom)]
+        hit-radius (/ const/vertex-hit-radius zoom)]
     (when (= :area (:type selection))
       ;; Check vertices of all selected areas
       (first

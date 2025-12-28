@@ -4,11 +4,14 @@
    Provides a first-person view of terrain with:
    - Minecraft-style WASD + mouse controls
    - Water simulation overlay
+   - 3D plant representations based on growth habits
    - Dynamic geometry based on resolution settings"
   (:require [reagent.core :as r]
             [garden.state :as state]
             [garden.simulation.water :as water-sim]
             [garden.simulation.water.grid :as water-grid]
+            [garden.data.plants :as plants]
+            [garden.constants :as constants]
             ["three" :as THREE]))
 
 ;; =============================================================================
@@ -45,6 +48,8 @@
          :terrain-mesh nil
          :water-mesh nil
          :water-geometry nil
+         :plant-group nil       ; Group containing all plant meshes
+         :plant-meshes {}       ; Map of plant-id -> mesh
          :animation-frame nil
          :pointer-locked? false}))
 
@@ -309,7 +314,382 @@
   (swap! keys-pressed disj (.-code e)))
 
 ;; =============================================================================
-;; Scene Management
+;; 3D Plant Creation
+;;
+;; Plants are represented as 3D meshes based on their growth habit.
+;; Each habit type has a characteristic shape that's intuitive and pretty.
+
+(defn- hex->color
+  "Convert hex color string to Three.js Color."
+  [hex]
+  (let [hex-val (if (= (first hex) \#) (subs hex 1) hex)]
+    (THREE/Color. (js/parseInt hex-val 16))))
+
+(defn- create-columnar-plant!
+  "Create a columnar plant (tall cylinder like cypress)."
+  [height-3d radius-3d color]
+  (let [group (THREE/Group.)
+        ;; Trunk
+        trunk-geom (THREE/CylinderGeometry. (* radius-3d 0.15) (* radius-3d 0.2) (* height-3d 0.3) 8)
+        trunk-mat (THREE/MeshLambertMaterial. #js {:color 0x5D4037})
+        trunk (THREE/Mesh. trunk-geom trunk-mat)
+        ;; Foliage - tall cone
+        foliage-geom (THREE/ConeGeometry. radius-3d (* height-3d 0.9) 8)
+        foliage-mat (THREE/MeshLambertMaterial. #js {:color (hex->color color)})
+        foliage (THREE/Mesh. foliage-geom foliage-mat)]
+    (.set (.-position trunk) 0 (* height-3d 0.15) 0)
+    (.set (.-position foliage) 0 (* height-3d 0.55) 0)
+    (.add group trunk)
+    (.add group foliage)
+    group))
+
+(defn- create-spreading-plant!
+  "Create a spreading plant (wide crown like oak)."
+  [height-3d radius-3d color]
+  (let [group (THREE/Group.)
+        ;; Trunk
+        trunk-geom (THREE/CylinderGeometry. (* radius-3d 0.12) (* radius-3d 0.18) (* height-3d 0.4) 8)
+        trunk-mat (THREE/MeshLambertMaterial. #js {:color 0x5D4037})
+        trunk (THREE/Mesh. trunk-geom trunk-mat)
+        ;; Foliage - multiple spheres for organic shape
+        foliage-mat (THREE/MeshLambertMaterial. #js {:color (hex->color color)})
+        main-geom (THREE/SphereGeometry. radius-3d 12 8)
+        main (THREE/Mesh. main-geom foliage-mat)
+        left-geom (THREE/SphereGeometry. (* radius-3d 0.7) 10 6)
+        left (THREE/Mesh. left-geom foliage-mat)
+        right (THREE/Mesh. left-geom foliage-mat)]
+    (.set (.-position trunk) 0 (* height-3d 0.2) 0)
+    (.set (.-position main) 0 (* height-3d 0.6) 0)
+    (.set (.-position left) (* radius-3d -0.6) (* height-3d 0.5) (* radius-3d 0.3))
+    (.set (.-position right) (* radius-3d 0.6) (* height-3d 0.5) (* radius-3d -0.3))
+    (.add group trunk)
+    (.add group main)
+    (.add group left)
+    (.add group right)
+    group))
+
+(defn- create-mounding-plant!
+  "Create a mounding plant (dome shape like shrubs)."
+  [height-3d radius-3d color bloom-color]
+  (let [group (THREE/Group.)
+        ;; Main dome
+        dome-geom (THREE/SphereGeometry. radius-3d 12 8 0 constants/TWO-PI 0 (/ Math/PI 2))
+        dome-mat (THREE/MeshLambertMaterial. #js {:color (hex->color color)})
+        dome (THREE/Mesh. dome-geom dome-mat)]
+    (.set (.-position dome) 0 0 0)
+    (.add group dome)
+    ;; Add blooms if present
+    (when bloom-color
+      (let [bloom-mat (THREE/MeshLambertMaterial. #js {:color (hex->color bloom-color)})
+            bloom-geom (THREE/SphereGeometry. (* radius-3d 0.15) 6 4)]
+        (dotimes [i 5]
+          (let [angle (* i (/ constants/TWO-PI 5))
+                bloom (THREE/Mesh. bloom-geom bloom-mat)]
+            (.set (.-position bloom)
+                  (* radius-3d 0.6 (Math/cos angle))
+                  (* height-3d 0.7)
+                  (* radius-3d 0.6 (Math/sin angle)))
+            (.add group bloom)))))
+    group))
+
+(defn- create-upright-plant!
+  "Create an upright plant (vertical oval)."
+  [height-3d radius-3d color bloom-color]
+  (let [group (THREE/Group.)
+        ;; Trunk for trees, skip for smaller plants
+        tall? (> height-3d 3)
+        _ (when tall?
+            (let [trunk-geom (THREE/CylinderGeometry. (* radius-3d 0.1) (* radius-3d 0.15) (* height-3d 0.3) 8)
+                  trunk-mat (THREE/MeshLambertMaterial. #js {:color 0x5D4037})
+                  trunk (THREE/Mesh. trunk-geom trunk-mat)]
+              (.set (.-position trunk) 0 (* height-3d 0.15) 0)
+              (.add group trunk)))
+        ;; Vertical oval foliage
+        foliage-geom (THREE/SphereGeometry. radius-3d 10 8)
+        foliage-mat (THREE/MeshLambertMaterial. #js {:color (hex->color color)})
+        foliage (THREE/Mesh. foliage-geom foliage-mat)]
+    (set! (.-y (.-scale foliage)) 1.3)
+    (.set (.-position foliage) 0 (if tall? (* height-3d 0.55) (* height-3d 0.5)) 0)
+    (.add group foliage)
+    ;; Blooms at top
+    (when bloom-color
+      (let [bloom-mat (THREE/MeshLambertMaterial. #js {:color (hex->color bloom-color)})
+            bloom-geom (THREE/SphereGeometry. (* radius-3d 0.2) 6 4)
+            bloom (THREE/Mesh. bloom-geom bloom-mat)]
+        (.set (.-position bloom) 0 (* height-3d 0.85) 0)
+        (.add group bloom)))
+    group))
+
+(defn- create-weeping-plant!
+  "Create a weeping plant (drooping branches like willow)."
+  [height-3d radius-3d color]
+  (let [group (THREE/Group.)
+        ;; Trunk
+        trunk-geom (THREE/CylinderGeometry. (* radius-3d 0.15) (* radius-3d 0.25) (* height-3d 0.4) 8)
+        trunk-mat (THREE/MeshLambertMaterial. #js {:color 0x5D4037})
+        trunk (THREE/Mesh. trunk-geom trunk-mat)
+        ;; Crown at top
+        crown-geom (THREE/SphereGeometry. (* radius-3d 0.6) 10 8)
+        crown-mat (THREE/MeshLambertMaterial. #js {:color (hex->color color)})
+        crown (THREE/Mesh. crown-geom crown-mat)
+        ;; Drooping "curtain" using elongated cones
+        droop-mat (THREE/MeshLambertMaterial. #js {:color (hex->color color)})]
+    (.set (.-position trunk) 0 (* height-3d 0.2) 0)
+    (.set (.-position crown) 0 (* height-3d 0.55) 0)
+    (.add group trunk)
+    (.add group crown)
+    ;; Add drooping branches
+    (dotimes [i 8]
+      (let [angle (* i (/ constants/TWO-PI 8))
+            droop-geom (THREE/ConeGeometry. (* radius-3d 0.3) (* height-3d 0.5) 6)
+            droop (THREE/Mesh. droop-geom droop-mat)]
+        (.set (.-position droop)
+              (* radius-3d 0.7 (Math/cos angle))
+              (* height-3d 0.3)
+              (* radius-3d 0.7 (Math/sin angle)))
+        (.add group droop)))
+    group))
+
+(defn- create-rosette-plant!
+  "Create a rosette plant (flat circular arrangement)."
+  [height-3d radius-3d color bloom-color]
+  (let [group (THREE/Group.)
+        ;; Flat disc shape
+        disc-geom (THREE/CylinderGeometry. radius-3d radius-3d (* height-3d 0.3) 16)
+        disc-mat (THREE/MeshLambertMaterial. #js {:color (hex->color color)})
+        disc (THREE/Mesh. disc-geom disc-mat)]
+    (.set (.-position disc) 0 (* height-3d 0.15) 0)
+    (.add group disc)
+    ;; Add bloom center if present
+    (when bloom-color
+      (let [bloom-mat (THREE/MeshLambertMaterial. #js {:color (hex->color bloom-color)})
+            bloom-geom (THREE/SphereGeometry. (* radius-3d 0.3) 8 6)
+            bloom (THREE/Mesh. bloom-geom bloom-mat)]
+        (.set (.-position bloom) 0 (* height-3d 0.4) 0)
+        (.add group bloom)))
+    group))
+
+(defn- create-clumping-plant!
+  "Create a clumping plant (grass-like vertical spikes)."
+  [height-3d radius-3d color bloom-color]
+  (let [group (THREE/Group.)
+        spike-mat (THREE/MeshLambertMaterial. #js {:color (hex->color color)})]
+    ;; Multiple vertical cones/cylinders
+    (dotimes [i 7]
+      (let [angle (* i (/ constants/TWO-PI 7))
+            dist (* radius-3d 0.4 (if (zero? i) 0 1))
+            spike-h (* height-3d (+ 0.7 (* 0.3 (Math/random))))
+            spike-geom (THREE/ConeGeometry. (* radius-3d 0.15) spike-h 6)
+            spike (THREE/Mesh. spike-geom spike-mat)]
+        (.set (.-position spike)
+              (* dist (Math/cos angle))
+              (/ spike-h 2)
+              (* dist (Math/sin angle)))
+        (.add group spike)))
+    ;; Plume tips if bloom color
+    (when bloom-color
+      (let [bloom-mat (THREE/MeshLambertMaterial. #js {:color (hex->color bloom-color)})
+            bloom-geom (THREE/SphereGeometry. (* radius-3d 0.1) 6 4)]
+        (dotimes [i 3]
+          (let [angle (* i (/ constants/TWO-PI 3))
+                bloom (THREE/Mesh. bloom-geom bloom-mat)]
+            (.set (.-position bloom)
+                  (* radius-3d 0.3 (Math/cos angle))
+                  height-3d
+                  (* radius-3d 0.3 (Math/sin angle)))
+            (.add group bloom)))))
+    group))
+
+(defn- create-bushy-plant!
+  "Create a bushy plant (irregular dense mass)."
+  [height-3d radius-3d color bloom-color]
+  (let [group (THREE/Group.)
+        bush-mat (THREE/MeshLambertMaterial. #js {:color (hex->color color)})]
+    ;; Multiple overlapping spheres
+    (dotimes [i 5]
+      (let [angle (* i (/ constants/TWO-PI 5))
+            dist (if (zero? i) 0 (* radius-3d 0.4))
+            size (* radius-3d (+ 0.5 (* 0.3 (if (zero? i) 1 (Math/random)))))
+            sphere-geom (THREE/SphereGeometry. size 8 6)
+            sphere (THREE/Mesh. sphere-geom bush-mat)]
+        (.set (.-position sphere)
+              (* dist (Math/cos angle))
+              (* height-3d (+ 0.3 (* 0.2 (Math/random))))
+              (* dist (Math/sin angle)))
+        (.add group sphere)))
+    ;; Blooms scattered on top
+    (when bloom-color
+      (let [bloom-mat (THREE/MeshLambertMaterial. #js {:color (hex->color bloom-color)})
+            bloom-geom (THREE/SphereGeometry. (* radius-3d 0.12) 6 4)]
+        (dotimes [i 6]
+          (let [angle (* i (/ constants/TWO-PI 6))
+                bloom (THREE/Mesh. bloom-geom bloom-mat)]
+            (.set (.-position bloom)
+                  (* radius-3d 0.5 (Math/cos angle))
+                  (* height-3d 0.7)
+                  (* radius-3d 0.5 (Math/sin angle)))
+            (.add group bloom)))))
+    group))
+
+(defn- create-fountain-plant!
+  "Create a fountain plant (arching from center like ornamental grass)."
+  [height-3d radius-3d color bloom-color]
+  (let [group (THREE/Group.)
+        arch-mat (THREE/MeshLambertMaterial. #js {:color (hex->color color)})]
+    ;; Arching blades represented as bent cones
+    (dotimes [i 10]
+      (let [angle (* i (/ constants/TWO-PI 10))
+            arch-geom (THREE/ConeGeometry. (* radius-3d 0.08) (* height-3d 0.8) 4)
+            arch (THREE/Mesh. arch-geom arch-mat)]
+        ;; Tilt outward
+        (.set (.-position arch)
+              (* radius-3d 0.3 (Math/cos angle))
+              (* height-3d 0.4)
+              (* radius-3d 0.3 (Math/sin angle)))
+        (set! (.-x (.-rotation arch)) (* 0.4 (Math/cos angle)))
+        (set! (.-z (.-rotation arch)) (* -0.4 (Math/sin angle)))
+        (.add group arch)))
+    ;; Center base
+    (let [base-geom (THREE/CylinderGeometry. (* radius-3d 0.2) (* radius-3d 0.25) (* height-3d 0.2) 8)
+          base (THREE/Mesh. base-geom arch-mat)]
+      (.set (.-position base) 0 (* height-3d 0.1) 0)
+      (.add group base))
+    ;; Plumes if bloom color
+    (when bloom-color
+      (let [bloom-mat (THREE/MeshLambertMaterial. #js {:color (hex->color bloom-color)})
+            bloom-geom (THREE/SphereGeometry. (* radius-3d 0.15) 6 4)]
+        (dotimes [i 5]
+          (let [angle (* i (/ constants/TWO-PI 5))
+                bloom (THREE/Mesh. bloom-geom bloom-mat)]
+            (.set (.-position bloom)
+                  (* radius-3d 0.8 (Math/cos angle))
+                  (* height-3d 0.85)
+                  (* radius-3d 0.8 (Math/sin angle)))
+            (.add group bloom)))))
+    group))
+
+(defn- create-spiky-plant!
+  "Create a spiky plant (radiating points like agave)."
+  [height-3d radius-3d color]
+  (let [group (THREE/Group.)
+        spike-mat (THREE/MeshLambertMaterial. #js {:color (hex->color color)})]
+    ;; Radiating spikes
+    (dotimes [i 10]
+      (let [angle (* i (/ constants/TWO-PI 10))
+            spike-geom (THREE/ConeGeometry. (* radius-3d 0.12) (* height-3d 0.8) 4)
+            spike (THREE/Mesh. spike-geom spike-mat)]
+        (.set (.-position spike)
+              (* radius-3d 0.3 (Math/cos angle))
+              (* height-3d 0.35)
+              (* radius-3d 0.3 (Math/sin angle)))
+        ;; Tilt outward and up
+        (set! (.-x (.-rotation spike)) (* 0.5 (Math/cos angle)))
+        (set! (.-z (.-rotation spike)) (* -0.5 (Math/sin angle)))
+        (.add group spike)))
+    ;; Center rosette
+    (let [center-geom (THREE/ConeGeometry. (* radius-3d 0.15) (* height-3d 0.5) 6)
+          center (THREE/Mesh. center-geom spike-mat)]
+      (.set (.-position center) 0 (* height-3d 0.25) 0)
+      (.add group center))
+    group))
+
+(defn- create-vining-plant!
+  "Create a vining plant (tendrils from center)."
+  [height-3d radius-3d color bloom-color]
+  (let [group (THREE/Group.)
+        vine-mat (THREE/MeshLambertMaterial. #js {:color (hex->color color)})
+        ;; Center mound
+        center-geom (THREE/SphereGeometry. (* radius-3d 0.4) 8 6)
+        center (THREE/Mesh. center-geom vine-mat)]
+    (.set (.-position center) 0 (* height-3d 0.3) 0)
+    (.add group center)
+    ;; Trailing vines as thin cylinders
+    (dotimes [i 6]
+      (let [angle (* i (/ constants/TWO-PI 6))
+            vine-geom (THREE/CylinderGeometry. (* radius-3d 0.05) (* radius-3d 0.03) radius-3d 4)
+            vine (THREE/Mesh. vine-geom vine-mat)]
+        (.set (.-position vine)
+              (* radius-3d 0.5 (Math/cos angle))
+              (* height-3d 0.15)
+              (* radius-3d 0.5 (Math/sin angle)))
+        (set! (.-z (.-rotation vine)) (/ Math/PI 2))
+        (set! (.-y (.-rotation vine)) angle)
+        (.add group vine)))
+    ;; Blooms
+    (when bloom-color
+      (let [bloom-mat (THREE/MeshLambertMaterial. #js {:color (hex->color bloom-color)})
+            bloom-geom (THREE/SphereGeometry. (* radius-3d 0.15) 6 4)]
+        (dotimes [i 4]
+          (let [angle (* i (/ constants/TWO-PI 4))
+                bloom (THREE/Mesh. bloom-geom bloom-mat)]
+            (.set (.-position bloom)
+                  (* radius-3d 0.6 (Math/cos angle))
+                  (* height-3d 0.5)
+                  (* radius-3d 0.6 (Math/sin angle)))
+            (.add group bloom)))))
+    group))
+
+(defn- create-prostrate-plant!
+  "Create a prostrate/groundcover plant (flat spreading)."
+  [_height-3d radius-3d color bloom-color]
+  (let [group (THREE/Group.)
+        mat (THREE/MeshLambertMaterial. #js {:color (hex->color color)})]
+    ;; Multiple flat patches
+    (dotimes [i 7]
+      (let [angle (if (zero? i) 0 (* i (/ constants/TWO-PI 6)))
+            dist (if (zero? i) 0 (* radius-3d 0.5))
+            patch-r (* radius-3d (+ 0.3 (* 0.2 (Math/random))))
+            patch-geom (THREE/CylinderGeometry. patch-r patch-r 0.2 8)
+            patch (THREE/Mesh. patch-geom mat)]
+        (.set (.-position patch)
+              (* dist (Math/cos angle))
+              0.1
+              (* dist (Math/sin angle)))
+        (.add group patch)))
+    ;; Tiny blooms
+    (when bloom-color
+      (let [bloom-mat (THREE/MeshLambertMaterial. #js {:color (hex->color bloom-color)})
+            bloom-geom (THREE/SphereGeometry. (* radius-3d 0.08) 4 3)]
+        (dotimes [i 8]
+          (let [angle (* i (/ constants/TWO-PI 8))
+                bloom (THREE/Mesh. bloom-geom bloom-mat)]
+            (.set (.-position bloom)
+                  (* radius-3d 0.6 (Math/cos angle))
+                  0.3
+                  (* radius-3d 0.6 (Math/sin angle)))
+            (.add group bloom)))))
+    group))
+
+(defn- create-plant-mesh!
+  "Create a 3D mesh for a plant based on its species data."
+  [plant-data stage]
+  (let [habit (or (:habit plant-data) :mounding)
+        color (or (:color plant-data) "#228B22")
+        bloom-color (:bloom-color plant-data)
+        spacing-cm (or (:spacing-cm plant-data) 50)
+        height-cm (or (:height-cm plant-data) spacing-cm)
+        ;; Convert to 3D units and apply stage scaling
+        stage-scale (case stage :seed 0.15 :seedling 0.4 :mature 1.0 1.0)
+        radius-3d (* (/ spacing-cm 2 cm-per-unit) stage-scale)
+        height-3d (* (/ height-cm cm-per-unit) stage-scale)]
+    ;; Create based on growth habit
+    (case habit
+      :columnar (create-columnar-plant! height-3d radius-3d color)
+      :spreading (create-spreading-plant! height-3d radius-3d color)
+      :vase (create-upright-plant! height-3d radius-3d color bloom-color)
+      :weeping (create-weeping-plant! height-3d radius-3d color)
+      :mounding (create-mounding-plant! height-3d radius-3d color bloom-color)
+      :upright (create-upright-plant! height-3d radius-3d color bloom-color)
+      :prostrate (create-prostrate-plant! height-3d radius-3d color bloom-color)
+      :rosette (create-rosette-plant! height-3d radius-3d color bloom-color)
+      :clumping (create-clumping-plant! height-3d radius-3d color bloom-color)
+      :vining (create-vining-plant! height-3d radius-3d color bloom-color)
+      :spiky (create-spiky-plant! height-3d radius-3d color)
+      :bushy (create-bushy-plant! height-3d radius-3d color bloom-color)
+      :fountain (create-fountain-plant! height-3d radius-3d color bloom-color)
+      :fan (create-upright-plant! height-3d radius-3d color bloom-color)
+      ;; Default to mounding
+      (create-mounding-plant! height-3d radius-3d color bloom-color))))
 
 (defn- get-elevation-at-3d-point
   "Get terrain elevation at a 3D coordinate."
@@ -327,6 +707,33 @@
     (if (or (nil? elev) (js/isNaN elev))
       0
       (* (- elev min-elevation) elev-scale))))
+
+(defn- add-plants-to-scene!
+  "Add all plants from state to the 3D scene."
+  [scene topo-state]
+  (let [all-plants (state/plants)
+        plant-group (THREE/Group.)
+        plant-meshes (atom {})]
+    ;; Create mesh for each plant
+    (doseq [plant all-plants]
+      (let [plant-data (plants/get-plant (:species-id plant))
+            stage (or (:stage plant) :mature)
+            mesh (create-plant-mesh! plant-data stage)
+            [gx gy] (:position plant)
+            ;; Convert garden coords to 3D coords
+            x3d (/ gx cm-per-unit)
+            z3d (- (/ gy cm-per-unit))
+            ;; Get elevation at plant position
+            y3d (get-elevation-at-3d-point topo-state x3d z3d)]
+        (.set (.-position mesh) x3d y3d z3d)
+        (.add plant-group mesh)
+        (swap! plant-meshes assoc (:id plant) mesh)))
+    (.add scene plant-group)
+    {:group plant-group
+     :meshes @plant-meshes}))
+
+;; =============================================================================
+;; Scene Management
 
 (defn- create-scene!
   "Initialize the Three.js scene."
@@ -392,22 +799,26 @@
     (reset! camera-pitch 0)
     (update-camera-look!)
 
-    (reset! scene-state
-            {:scene scene
-             :camera camera
-             :renderer renderer
-             :terrain-mesh terrain-mesh
-             :water-mesh water-mesh
-             :water-geometry water-geom
-             :animation-frame nil
-             :pointer-locked? false})
+    ;; Add plants to the scene
+    (let [{:keys [group meshes]} (add-plants-to-scene! scene topo-state)]
+      (reset! scene-state
+              {:scene scene
+               :camera camera
+               :renderer renderer
+               :terrain-mesh terrain-mesh
+               :water-mesh water-mesh
+               :water-geometry water-geom
+               :plant-group group
+               :plant-meshes meshes
+               :animation-frame nil
+               :pointer-locked? false}))
 
     ;; Animation loop
     (letfn [(animate []
               (let [{:keys [renderer scene camera]} @scene-state]
                 (when renderer
                   (process-movement!)
-                  (when (water-sim/sim-running?)
+                  (when (water-sim/running?)
                     (update-water-geometry!))
                   (update-camera-state! camera)
                   (.render renderer scene camera)
@@ -418,7 +829,7 @@
 (defn- dispose-scene!
   "Clean up Three.js resources."
   []
-  (let [{:keys [renderer terrain-mesh water-mesh animation-frame]} @scene-state]
+  (let [{:keys [renderer terrain-mesh water-mesh plant-group animation-frame]} @scene-state]
     (when animation-frame
       (js/cancelAnimationFrame animation-frame))
     (when terrain-mesh
@@ -429,6 +840,12 @@
     (when water-mesh
       (.dispose (.-geometry water-mesh))
       (when-let [mat (.-material water-mesh)] (.dispose mat)))
+    ;; Dispose plant meshes
+    (when plant-group
+      (.traverse plant-group
+                 (fn [obj]
+                   (when (.-geometry obj) (.dispose (.-geometry obj)))
+                   (when (.-material obj) (.dispose (.-material obj))))))
     (when renderer
       (.dispose renderer)
       (when-let [canvas (.-domElement renderer)]
@@ -437,6 +854,7 @@
   (reset! scene-state
           {:scene nil :camera nil :renderer nil
            :terrain-mesh nil :water-mesh nil :water-geometry nil
+           :plant-group nil :plant-meshes {}
            :animation-frame nil :pointer-locked? false}))
 
 (defn- handle-resize!

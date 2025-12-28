@@ -6,11 +6,14 @@
    Areas include the contour elevation in their properties.
 
    Keyboard shortcuts:
-   - 1-8: Select area type
+   - 0-9: Select area type (1=water, 2=bed, 3=path, etc.)
+   - w/b/p/l/h: Quick type selection
    - Escape: Cancel current trace"
   (:require [garden.tools.protocol :as p]
             [garden.state :as state]
-            [garden.topo.core :as topo]))
+            [garden.topo.core :as topo]
+            [garden.data.area-types :as area-types]
+            [garden.util.simplify :as simplify]))
 
 (def ^:private snap-tolerance
   "How close (in meters of elevation) to snap to a contour."
@@ -53,51 +56,22 @@
                 (reset! best {:point test-pt :dist spatial-dist}))))))
       (:point @best))))
 
-(defn- simplify-points
-  "Reduce number of points by removing those too close together."
-  [points min-distance]
-  (if (< (count points) 3)
-    points
-    (reduce (fn [acc pt]
-              (let [last-pt (peek acc)]
-                (if (or (nil? last-pt)
-                        (let [[x1 y1] last-pt
-                              [x2 y2] pt
-                              dist (Math/sqrt (+ (* (- x2 x1) (- x2 x1))
-                                                 (* (- y2 y1) (- y2 y1))))]
-                          (> dist min-distance)))
-                  (conj acc pt)
-                  acc)))
-            []
-            points)))
-
-(def area-type-info
-  {:bed       {:name "Garden Bed" :color "#8B6914"}
-   :path      {:name "Path" :color "#d4a574"}
-   :water     {:name "Water" :color "#4a90d9"}
-   :structure {:name "Structure" :color "#607D8B"}
-   :lawn      {:name "Lawn" :color "#7CB342"}
-   :rocks     {:name "Rocks" :color "#9E9E9E"}
-   :hedge     {:name "Hedge" :color "#2E7D32"}
-   :mulch     {:name "Mulch" :color "#5D4037"}
-   :patio     {:name "Patio" :color "#8D6E63"}
-   :sand      {:name "Sand" :color "#E8D5B7"}})
-
 (defn- create-area-from-points!
   "Create an area from the traced points."
   [points area-type contour-elevation]
-  (let [simplified (simplify-points points 50)
+  (let [simplified (simplify/simplify-by-distance points 50)
         final-points (if (< (count simplified) 3) points simplified)]
     (when (>= (count final-points) 3)
-      (let [type-info (get area-type-info area-type {:name "Area" :color "#888888"})
-            area-name (str (:name type-info)
+      (let [label (or (area-types/get-label area-type) "Area")
+            color (or (area-types/get-color area-type) "#888888")
+            area-name (str label
                            (when contour-elevation
                              (str " @" (.toFixed contour-elevation 0) "m"))
                            " " (inc (count (state/areas))))
             area-id (state/add-area! {:name area-name
                                       :type area-type
                                       :points final-points
-                                      :color (:color type-info)
+                                      :color color
                                       :properties {:contour-elevation contour-elevation}})]
         (state/select! :area #{area-id})))))
 
@@ -154,16 +128,26 @@
 
   (on-key-down [_ event]
     (let [key (.-key event)]
-      ;; Number keys for area types
+      ;; Number keys for area types (matching trace tool):
+      ;; 1=Water, 2=Bed, 3=Path, 4=Structure, 5=Lawn
+      ;; 6=Rocks, 7=Hedge, 8=Mulch, 9=Patio, 0=Sand
       (case key
-        "1" (state/update-tool-state! assoc :area-type :bed)
-        "2" (state/update-tool-state! assoc :area-type :path)
-        "3" (state/update-tool-state! assoc :area-type :water)
+        "1" (state/update-tool-state! assoc :area-type :water)
+        "2" (state/update-tool-state! assoc :area-type :bed)
+        "3" (state/update-tool-state! assoc :area-type :path)
         "4" (state/update-tool-state! assoc :area-type :structure)
         "5" (state/update-tool-state! assoc :area-type :lawn)
         "6" (state/update-tool-state! assoc :area-type :rocks)
         "7" (state/update-tool-state! assoc :area-type :hedge)
         "8" (state/update-tool-state! assoc :area-type :mulch)
+        "9" (state/update-tool-state! assoc :area-type :patio)
+        "0" (state/update-tool-state! assoc :area-type :sand)
+        ;; Letter shortcuts for common types
+        "w" (state/update-tool-state! assoc :area-type :water)
+        "b" (state/update-tool-state! assoc :area-type :bed)
+        "p" (state/update-tool-state! assoc :area-type :path)
+        "l" (state/update-tool-state! assoc :area-type :lawn)
+        "h" (state/update-tool-state! assoc :area-type :hedge)
         "Escape" (state/update-tool-state!
                   assoc :points [] :drawing? false :target-elevation nil)
         nil))))

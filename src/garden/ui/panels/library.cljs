@@ -5,173 +5,83 @@
    - Drawing tool buttons (area, trace, fill, contour-trace, elevation-point)
    - Plant placement tools (single, row, scatter)
    - Tool-specific options panels
-   - Searchable plant catalog with drag-and-drop support"
-  (:require [garden.state :as state]
-            [garden.tools.protocol :as tools]))
+   - Searchable plant catalog with drag-and-drop support
+   - 100+ plants with growth-habit-based visual representation"
+  (:require [clojure.string :as str]
+            [garden.state :as state]
+            [garden.tools.protocol :as tools]
+            [garden.data.area-types :as area-types]
+            [garden.data.plants :as plants]
+            [garden.constants :as const]))
 
 ;; =============================================================================
 ;; Plant Catalog Data
-
-;; Sample plant library data
-;; spacing-cm is the recommended spacing between plants (diameter of mature footprint)
-(def sample-plants
-  [{:id "tomato-cherry"
-    :common-name "Cherry Tomato"
-    :scientific-name "Solanum lycopersicum"
-    :type :vegetable
-    :color "#ff6347"
-    :spacing-cm 60}
-   {:id "basil"
-    :common-name "Basil"
-    :scientific-name "Ocimum basilicum"
-    :type :herb
-    :color "#228b22"
-    :spacing-cm 25}
-   {:id "sunflower"
-    :common-name "Sunflower"
-    :scientific-name "Helianthus annuus"
-    :type :flower
-    :color "#ffd700"
-    :spacing-cm 45}
-   {:id "rose"
-    :common-name "Rose"
-    :scientific-name "Rosa"
-    :type :flower
-    :color "#ff1493"
-    :spacing-cm 60}
-   {:id "tulip"
-    :common-name "Tulip"
-    :scientific-name "Tulipa"
-    :type :flower
-    :color "#ff69b4"
-    :spacing-cm 15}
-   {:id "lavender"
-    :common-name "Lavender"
-    :scientific-name "Lavandula"
-    :type :flower
-    :color "#9370db"
-    :spacing-cm 45}
-   {:id "marigold"
-    :common-name "Marigold"
-    :scientific-name "Tagetes"
-    :type :flower
-    :color "#ffa500"
-    :spacing-cm 25}
-   {:id "carrot"
-    :common-name "Carrot"
-    :scientific-name "Daucus carota"
-    :type :vegetable
-    :color "#ff8c00"
-    :spacing-cm 8}
-   {:id "lettuce"
-    :common-name "Lettuce"
-    :scientific-name "Lactuca sativa"
-    :type :vegetable
-    :color "#90ee90"
-    :spacing-cm 30}
-   {:id "rosemary"
-    :common-name "Rosemary"
-    :scientific-name "Salvia rosmarinus"
-    :type :herb
-    :color "#2e8b57"
-    :spacing-cm 60}
-   {:id "apple-tree"
-    :common-name "Apple Tree"
-    :scientific-name "Malus domestica"
-    :type :tree
-    :color "#8b4513"
-    :spacing-cm 400}
-   ;; Japanese Garden Plants
-   {:id "cherry-blossom"
-    :common-name "Cherry Blossom"
-    :scientific-name "Prunus serrulata"
-    :type :tree
-    :color "#ffb7c5"
-    :spacing-cm 500}
-   {:id "japanese-maple"
-    :common-name "Japanese Maple"
-    :scientific-name "Acer palmatum"
-    :type :tree
-    :color "#c41e3a"
-    :spacing-cm 400}
-   {:id "japanese-pine"
-    :common-name "Japanese Black Pine"
-    :scientific-name "Pinus thunbergii"
-    :type :tree
-    :color "#355e3b"
-    :spacing-cm 600}
-   {:id "plum-tree"
-    :common-name "Plum Tree"
-    :scientific-name "Prunus mume"
-    :type :tree
-    :color "#dda0dd"
-    :spacing-cm 400}
-   {:id "bamboo"
-    :common-name "Bamboo"
-    :scientific-name "Phyllostachys"
-    :type :tree
-    :color "#7cfc00"
-    :spacing-cm 100}
-   {:id "azalea"
-    :common-name "Azalea"
-    :scientific-name "Rhododendron"
-    :type :flower
-    :color "#ff6ec7"
-    :spacing-cm 80}
-   {:id "iris"
-    :common-name "Japanese Iris"
-    :scientific-name "Iris ensata"
-    :type :flower
-    :color "#5d3fd3"
-    :spacing-cm 30}
-   {:id "moss"
-    :common-name "Moss"
-    :scientific-name "Bryophyta"
-    :type :herb
-    :color "#4a5d23"
-    :spacing-cm 10}
-   {:id "wisteria"
-    :common-name "Wisteria"
-    :scientific-name "Wisteria floribunda"
-    :type :flower
-    :color "#c9a0dc"
-    :spacing-cm 200}
-   {:id "camellia"
-    :common-name "Camellia"
-    :scientific-name "Camellia japonica"
-    :type :flower
-    :color "#e34234"
-    :spacing-cm 150}])
+;;
+;; Plants are now loaded from garden.data.plants which contains 100+ plants
+;; with rich visual attributes (growth habit, foliage type, bloom colors, etc.)
 
 ;; =============================================================================
 ;; Plant Card Component
 
+(defn- habit-icon
+  "Get a small visual indicator for growth habit."
+  [habit]
+  (case habit
+    :columnar "▮"
+    :spreading "◎"
+    :vase "⋁"
+    :weeping "☂"
+    :mounding "⌒"
+    :upright "↑"
+    :prostrate "━"
+    :rosette "✿"
+    :clumping "|||"
+    :vining "~"
+    :spiky "✶"
+    :bushy "●"
+    :fountain "⋔"
+    :fan "◗"
+    "○"))
+
 (defn plant-card
-  "A single plant in the library."
+  "A single plant in the library.
+   Displays the plant with its primary color, bloom color, and growth habit."
   [plant]
-  (let [selected-species (state/get-state :tool :state :species-id)]
+  (let [selected-species (state/get-state :tool :state :species-id)
+        has-bloom? (some? (:bloom-color plant))]
     [:div.plant-card
      {:class (when (= (:id plant) selected-species) "selected")
       :draggable true
       :on-drag-start (fn [e]
-                       ;; Store plant ID in drag data
-                       (.setData (.-dataTransfer e) "text/plain" (:id plant))
+                       (.setData (.-dataTransfer e) const/species-drag-mime-type (:id plant))
                        (set! (.-effectAllowed (.-dataTransfer e)) "copy")
-                       ;; Also activate plant tool
                        (tools/activate-tool! :plant)
                        (state/update-tool-state! assoc :species-id (:id plant)))
       :on-click (fn []
-                  ;; Select this plant for placement
-                  ;; If scatter tool is active, stay in scatter mode
                   (let [current-tool (state/active-tool)]
                     (when (not= current-tool :scatter)
                       (tools/activate-tool! :plant)))
                   (state/update-tool-state! assoc :species-id (:id plant)))}
+     ;; Color indicator with optional bloom accent
      [:div.plant-color
-      {:style {:background-color (:color plant)}}]
+      {:style {:background-color (:color plant)
+               :position "relative"}}
+      (when has-bloom?
+        [:div {:style {:position "absolute"
+                       :bottom "2px"
+                       :right "2px"
+                       :width "8px"
+                       :height "8px"
+                       :border-radius "50%"
+                       :background-color (:bloom-color plant)
+                       :border "1px solid rgba(255,255,255,0.5)"}}])]
      [:div.plant-info
       [:div.plant-name (:common-name plant)]
-      [:div.plant-type (name (:type plant))]]]))
+      [:div.plant-meta
+       {:style {:display "flex" :justify-content "space-between" :align-items "center"}}
+       [:span.plant-type (name (:category plant))]
+       [:span.plant-habit {:style {:opacity 0.6 :font-size "10px"}}
+        (habit-icon (:habit plant))]]]]))
 
 ;; =============================================================================
 ;; Drawing Tools Section
@@ -212,19 +122,7 @@
      "Scatter"]))
 
 ;; =============================================================================
-;; Area Types
-
-(def area-types
-  {:bed       {:label "Garden Bed" :color "#8B6914"}
-   :path      {:label "Path" :color "#d4a574"}
-   :water     {:label "Water" :color "#4a90d9"}
-   :structure {:label "Structure" :color "#607D8B"}
-   :lawn      {:label "Lawn" :color "#7CB342"}
-   :rocks     {:label "Rocks/Gravel" :color "#9E9E9E"}
-   :hedge     {:label "Hedge" :color "#2E7D32"}
-   :mulch     {:label "Mulch" :color "#5D4037"}
-   :patio     {:label "Patio/Deck" :color "#8D6E63"}
-   :sand      {:label "Sand" :color "#E8D5B7"}})
+;; Area Type Selector
 
 (defn- area-type-selector
   "Dropdown to select area type for drawing tools."
@@ -234,7 +132,7 @@
    [:select.select-input
     {:value (name (or current-type :water))
      :on-change #(on-change (keyword (-> % .-target .-value)))}
-    (for [[type-key {:keys [label]}] (sort-by (comp :label val) area-types)]
+    (for [[type-key {:keys [label]}] (area-types/sorted-by-label)]
       ^{:key type-key}
       [:option {:value (name type-key)} label])]])
 
@@ -437,20 +335,32 @@
     [plant-tool-button :row "Plant Row"]
     [scatter-tool-button]]])
 
+(def category-groups
+  "Grouped categories for the filter UI."
+  [[:tree :shrub]
+   [:perennial :annual]
+   [:vegetable :herb]
+   [:grass :groundcover]
+   [:vine :succulent]
+   [:aquatic :fern]])
+
 (defn plant-library
-  "The plant library panel content."
+  "The plant library panel content.
+   Shows 100+ plants organized by category with search filtering."
   []
   (let [filter-state (state/get-state :library :filter)
         search-term (or (:search filter-state) "")
-        type-filter (:type filter-state)
-        filtered-plants (cond->> sample-plants
+        category-filter (:category filter-state)
+        search-lower (str/lower-case search-term)
+        matches-search? (fn [plant]
+                          (or (str/includes? (str/lower-case (:common-name plant)) search-lower)
+                              (str/includes? (str/lower-case (:scientific-name plant)) search-lower)))
+        filtered-plants (cond->> plants/plant-library
                           (seq search-term)
-                          (filter #(or (re-find (re-pattern (str "(?i)" search-term))
-                                                (:common-name %))
-                                       (re-find (re-pattern (str "(?i)" search-term))
-                                                (:scientific-name %))))
-                          type-filter
-                          (filter #(= (:type %) type-filter)))]
+                          (filter matches-search?)
+                          category-filter
+                          (filter #(= (:category %) category-filter)))
+        plant-count (count filtered-plants)]
     [:div.plant-library
      ;; Drawing tools section
      [drawing-tools-section]
@@ -458,7 +368,11 @@
      ;; Tool options (shown below buttons when a drawing tool is active)
      [tool-options-panel]
 
-     [:div.section-header "Plants"]
+     [:div.section-header
+      {:style {:display "flex" :justify-content "space-between" :align-items "center"}}
+      [:span "Plants"]
+      [:span {:style {:font-size "11px" :opacity 0.6}}
+       (str plant-count " plants")]]
 
      ;; Search input
      [:input.search-input
@@ -468,18 +382,27 @@
        :on-change #(state/set-state! [:library :filter :search]
                                      (-> % .-target .-value))}]
 
-     ;; Type filter
+     ;; Category filters - two per row for compact display
      [:div.type-filters
+      {:style {:display "flex" :flex-wrap "wrap" :gap "4px"}}
       [:button.filter-btn
-       {:class (when (nil? type-filter) "active")
-        :on-click #(state/set-state! [:library :filter :type] nil)}
+       {:class (when (nil? category-filter) "active")
+        :style {:flex "1 1 auto" :min-width "40px"}
+        :on-click #(state/set-state! [:library :filter :category] nil)}
        "All"]
-      (for [t [:vegetable :herb :flower :tree]]
-        ^{:key t}
-        [:button.filter-btn
-         {:class (when (= type-filter t) "active")
-          :on-click #(state/set-state! [:library :filter :type] t)}
-         (name t)])]
+      (for [[cat1 cat2] category-groups]
+        ^{:key cat1}
+        [:<>
+         [:button.filter-btn
+          {:class (when (= category-filter cat1) "active")
+           :style {:flex "1 1 auto" :min-width "40px" :font-size "11px"}
+           :on-click #(state/set-state! [:library :filter :category] cat1)}
+          (name cat1)]
+         [:button.filter-btn
+          {:class (when (= category-filter cat2) "active")
+           :style {:flex "1 1 auto" :min-width "40px" :font-size "11px"}
+           :on-click #(state/set-state! [:library :filter :category] cat2)}
+          (name cat2)]])]
 
      ;; Plant list
      [:div.plant-list

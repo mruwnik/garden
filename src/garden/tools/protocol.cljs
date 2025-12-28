@@ -32,9 +32,12 @@
 (defonce tools (atom {}))
 
 (defn register-tool!
-  "Register a tool implementation."
+  "Register a tool implementation. Warns if a tool with the same ID already exists."
   [tool]
-  (swap! tools assoc (tool-id tool) tool))
+  (let [id (tool-id tool)]
+    (when (contains? @tools id)
+      (js/console.warn "Tool already registered, overwriting:" (name id)))
+    (swap! tools assoc id tool)))
 
 (defn get-tool
   "Get a tool by its id."

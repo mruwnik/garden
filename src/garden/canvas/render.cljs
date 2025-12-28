@@ -3,12 +3,15 @@
 
    This namespace handles the 2D rendering of:
    - Areas (beds, paths, water features, structures)
-   - Plants (with type-specific graphics)
+   - Plants (with growth-habit-based symbolic rendering)
    - Selection highlights and handles
    - Tool overlays and tooltips"
   (:require [garden.state :as state]
             [garden.canvas.viewport :as viewport]
-            [garden.ui.panels.library :as library]))
+            [garden.canvas.plant-render :as plant-render]
+            [garden.data.plants :as plants]
+            [garden.data.area-types :as area-types]
+            [garden.constants :as constants]))
 
 ;; =============================================================================
 ;; Background Rendering
@@ -38,7 +41,7 @@
           (let [offset-x (* 5 (Math/sin (+ x y)))
                 offset-y (* 5 (Math/cos (* x 0.5)))]
             (.beginPath ctx)
-            (.arc ctx (+ x offset-x) (+ y offset-y) 2 0 (* 2 Math/PI))
+            (.arc ctx (+ x offset-x) (+ y offset-y) 2 0 constants/TWO-PI)
             (.fill ctx)))
         ;; Add darker grass patches
         (set! (.-fillStyle ctx) "rgba(70, 100, 50, 0.15)")
@@ -46,7 +49,7 @@
                 y (range (- start-y patch-spacing) end-y patch-spacing)]
           (let [size (+ 10 (* 10 (Math/abs (Math/sin (* x y 0.001)))))]
             (.beginPath ctx)
-            (.arc ctx x y size 0 (* 2 Math/PI))
+            (.arc ctx x y size 0 constants/TWO-PI)
             (.fill ctx)))))))
 
 (defn- draw-polygon!
@@ -99,7 +102,7 @@
   "Draw a filled circle."
   [ctx x y radius color]
   (.beginPath ctx)
-  (.arc ctx x y radius 0 (* 2 Math/PI))
+  (.arc ctx x y radius 0 constants/TWO-PI)
   (set! (.-fillStyle ctx) color)
   (.fill ctx))
 
@@ -107,7 +110,7 @@
   "Draw a circle outline."
   [ctx x y radius color line-width]
   (.beginPath ctx)
-  (.arc ctx x y radius 0 (* 2 Math/PI))
+  (.arc ctx x y radius 0 constants/TWO-PI)
   (set! (.-strokeStyle ctx) color)
   (set! (.-lineWidth ctx) line-width)
   (.stroke ctx))
@@ -156,7 +159,7 @@
               offset-y (* 8 (Math/cos (* x 0.15)))
               size (+ 8 (* 6 (Math/abs (Math/sin (* x y 0.002)))))]
           (.beginPath ctx)
-          (.ellipse ctx (+ x offset-x) (+ y offset-y) size (* size 0.7) (* x 0.01) 0 (* 2 Math/PI))
+          (.ellipse ctx (+ x offset-x) (+ y offset-y) size (* size 0.7) (* x 0.01) 0 constants/TWO-PI)
           (.fill ctx)))
       ;; Small pebbles and organic matter
       (set! (.-fillStyle ctx) "rgba(100, 80, 60, 0.2)")
@@ -165,14 +168,14 @@
         (let [px (+ x (* 7 (Math/sin (* y 0.3))))
               py (+ y (* 7 (Math/cos (* x 0.25))))]
           (.beginPath ctx)
-          (.arc ctx px py (+ 2 (* 2 (Math/abs (Math/sin (* px py 0.01))))) 0 (* 2 Math/PI))
+          (.arc ctx px py (+ 2 (* 2 (Math/abs (Math/sin (* px py 0.01))))) 0 constants/TWO-PI)
           (.fill ctx)))
       ;; Light highlights for depth
       (set! (.-fillStyle ctx) "rgba(150, 120, 90, 0.1)")
       (doseq [x (range min-x max-x 40)
               y (range min-y max-y 40)]
         (.beginPath ctx)
-        (.arc ctx (+ x 5) (+ y 3) 4 0 (* 2 Math/PI))
+        (.arc ctx (+ x 5) (+ y 3) 4 0 constants/TWO-PI)
         (.fill ctx))
       (.restore ctx))))
 
@@ -208,18 +211,18 @@
           ;; Stone body
           (set! (.-fillStyle ctx) (str "rgba(" (int (* 140 lightness)) "," (int (* 140 lightness)) "," (int (* 135 lightness)) ", 0.9)"))
           (.beginPath ctx)
-          (.ellipse ctx x y (/ w 2) (/ h 2) (* (Math/sin x) 0.2) 0 (* 2 Math/PI))
+          (.ellipse ctx x y (/ w 2) (/ h 2) (* (Math/sin x) 0.2) 0 constants/TWO-PI)
           (.fill ctx)
           ;; Stone highlight
           (set! (.-fillStyle ctx) "rgba(200, 200, 195, 0.3)")
           (.beginPath ctx)
-          (.ellipse ctx (- x 2) (- y 2) (/ w 4) (/ h 4) 0 0 (* 2 Math/PI))
+          (.ellipse ctx (- x 2) (- y 2) (/ w 4) (/ h 4) 0 0 constants/TWO-PI)
           (.fill ctx)
           ;; Stone outline/shadow
           (set! (.-strokeStyle ctx) "rgba(80, 80, 75, 0.4)")
           (set! (.-lineWidth ctx) 1)
           (.beginPath ctx)
-          (.ellipse ctx x y (/ w 2) (/ h 2) (* (Math/sin x) 0.2) 0 (* 2 Math/PI))
+          (.ellipse ctx x y (/ w 2) (/ h 2) (* (Math/sin x) 0.2) 0 constants/TWO-PI)
           (.stroke ctx)))
       ;; Add some gravel between stones
       (set! (.-fillStyle ctx) "rgba(120, 115, 100, 0.5)")
@@ -228,7 +231,7 @@
         (let [px (+ x (* 3 (Math/sin (* y 0.5))))
               py (+ y (* 3 (Math/cos (* x 0.4))))]
           (.beginPath ctx)
-          (.arc ctx px py 1.5 0 (* 2 Math/PI))
+          (.arc ctx px py 1.5 0 constants/TWO-PI)
           (.fill ctx)))
       (.restore ctx))))
 
@@ -261,7 +264,7 @@
         (let [px (+ x (* 20 (Math/sin (* y 0.1))))
               py (+ y (* 15 (Math/cos (* x 0.08))))]
           (.beginPath ctx)
-          (.ellipse ctx px py 4 6 0.5 0 (* 2 Math/PI))
+          (.ellipse ctx px py 4 6 0.5 0 constants/TWO-PI)
           (.fill ctx)))
       ;; Subtle plank divisions
       (set! (.-strokeStyle ctx) "rgba(50, 35, 20, 0.2)")
@@ -320,7 +323,7 @@
       (set! (.-lineWidth ctx) 2)
       (doseq [r (range 20 (max (- max-x min-x) (- max-y min-y)) 40)]
         (.beginPath ctx)
-        (.arc ctx cx cy r 0 (* 2 Math/PI))
+        (.arc ctx cx cy r 0 constants/TWO-PI)
         (.stroke ctx))
       ;; Light shimmer
       (set! (.-fillStyle ctx) "rgba(255,255,255,0.1)")
@@ -328,7 +331,7 @@
               y (range min-y max-y 60)]
         (when (< (rand) 0.3)
           (.beginPath ctx)
-          (.ellipse ctx x y 8 4 (* x 0.01) 0 (* 2 Math/PI))
+          (.ellipse ctx x y 8 4 (* x 0.01) 0 constants/TWO-PI)
           (.fill ctx)))
       (.restore ctx))))
 
@@ -339,12 +342,8 @@
         holes (:holes area)  ; Optional inner rings (islands become holes)
         area-type (or (:type area) :bed)
         color (or (:color area)
-                  (case area-type
-                    :bed "#8B6914"
-                    :path "#d4a574"
-                    :water "#4a90d9"
-                    :structure "#607D8B"
-                    "#8B4513"))
+                  (area-types/get-color area-type)
+                  "#8B4513")
         ;; Only show detailed textures when fairly zoomed in (> 0.25)
         show-textures? (> zoom 0.25)
         ;; Make areas semi-transparent when reference image is visible
@@ -432,291 +431,43 @@
 
 (defn render-areas!
   "Render all areas (beds, paths, structures) with viewport culling.
-   Smaller areas render on top of larger ones (for islands in ponds, etc)."
-  [ctx state]
-  (let [zoom (get-in state [:viewport :zoom])
-        areas (:areas state)
-        bounds (viewport/visible-bounds)
-        visible-areas (filter #(area-in-view? % bounds) areas)
-        ;; Sort by size descending - larger areas first, smaller on top
-        sorted-areas (sort-by #(- (polygon-area (:points %))) visible-areas)
-        ;; Check if reference image is visible
-        ref-visible? (and (get-in state [:ui :reference-image :visible?])
-                          (get-in state [:ui :reference-image :image]))]
-    (doseq [area sorted-areas]
-      (render-area! ctx area zoom ref-visible?))))
+   Smaller areas render on top of larger ones (for islands in ponds, etc).
+   If bounds is provided, uses it instead of computing visible-bounds."
+  ([ctx state] (render-areas! ctx state nil))
+  ([ctx state bounds]
+   (let [zoom (get-in state [:viewport :zoom])
+         areas (:areas state)
+         bounds (or bounds (viewport/visible-bounds))
+         visible-areas (filter #(area-in-view? % bounds) areas)
+         ;; Sort by size descending - larger areas first, smaller on top
+         sorted-areas (sort-by #(- (polygon-area (:points %))) visible-areas)
+         ;; Check if reference image is visible
+         ref-visible? (and (get-in state [:ui :reference-image :visible?])
+                           (get-in state [:ui :reference-image :image]))]
+     (doseq [area sorted-areas]
+       (render-area! ctx area zoom ref-visible?)))))
 
 ;; =============================================================================
 ;; Plant Rendering
-
-(defn- get-plant-data
-  "Look up plant species data from the library."
-  [species-id]
-  (first (filter #(= (:id %) species-id) library/sample-plants)))
-
-(defn- plant-radius
-  "Get the display radius for a plant based on its spacing-cm and life stage.
-   Garden coordinates are in centimeters, so radius = spacing-cm / 2."
-  [plant]
-  (let [plant-data (get-plant-data (:species-id plant))
-        stage (or (:stage plant) :mature)
-        ;; Use spacing-cm from library (diameter of mature plant footprint)
-        ;; Fall back to type-based defaults if not defined
-        spacing-cm (or (:spacing-cm plant-data)
-                       (case (:type plant-data)
-                         :tree 400
-                         :flower 30
-                         :vegetable 40
-                         :herb 25
-                         30))
-        base-radius (/ spacing-cm 2)]
-    ;; Scale radius based on life stage
-    (case stage
-      :seed (* base-radius 0.15)
-      :seedling (* base-radius 0.4)
-      :mature base-radius
-      base-radius)))
-
-(defn- draw-leaf!
-  "Draw a small leaf shape."
-  [ctx x y size angle color]
-  (.save ctx)
-  (.translate ctx x y)
-  (.rotate ctx angle)
-  (.beginPath ctx)
-  (.moveTo ctx 0 0)
-  (.quadraticCurveTo ctx (* size 0.5) (* size -0.3) size 0)
-  (.quadraticCurveTo ctx (* size 0.5) (* size 0.3) 0 0)
-  (set! (.-fillStyle ctx) color)
-  (.fill ctx)
-  (.restore ctx))
-
-(defn- draw-flower-petals!
-  "Draw flower petals around a center point."
-  [ctx x y radius color]
-  ;; Draw stem first
-  (let [stem-height (* radius 1.2)]
-    (.beginPath ctx)
-    (.moveTo ctx x y)
-    (.lineTo ctx x (+ y stem-height))
-    (set! (.-strokeStyle ctx) "#4CAF50")
-    (set! (.-lineWidth ctx) (max 2 (* radius 0.15)))
-    (.stroke ctx)
-    ;; Stem leaves
-    (draw-leaf! ctx (- x (* radius 0.3)) (+ y (* stem-height 0.5)) (* radius 0.5) -0.8 "#4CAF50")
-    (draw-leaf! ctx (+ x (* radius 0.3)) (+ y (* stem-height 0.7)) (* radius 0.4) 0.8 "#4CAF50"))
-  ;; Draw petals
-  (let [petal-count 6
-        petal-length (* radius 0.8)]
-    (dotimes [i petal-count]
-      (let [angle (* i (/ (* 2 Math/PI) petal-count))]
-        (.save ctx)
-        (.translate ctx x y)
-        (.rotate ctx angle)
-        (.beginPath ctx)
-        (.ellipse ctx 0 (- petal-length) (* radius 0.4) petal-length 0 0 (* 2 Math/PI))
-        (set! (.-fillStyle ctx) color)
-        (.fill ctx)
-        ;; Petal outline
-        (set! (.-strokeStyle ctx) "rgba(0,0,0,0.1)")
-        (set! (.-lineWidth ctx) 1)
-        (.stroke ctx)
-        (.restore ctx)))))
-
-(defn- draw-tree-crown!
-  "Draw a tree with trunk and crown."
-  [ctx x y radius color]
-  ;; Trunk
-  (let [trunk-width (* radius 0.3)
-        trunk-height (* radius 0.8)]
-    (set! (.-fillStyle ctx) "#5D4037")
-    (.fillRect ctx (- x (/ trunk-width 2)) y trunk-width trunk-height))
-  ;; Crown - layered circles for a fuller look
-  (draw-circle! ctx x (- y (* radius 0.1)) (* radius 1.1) color)
-  (draw-circle! ctx (- x (* radius 0.3)) (+ y (* radius 0.1)) (* radius 0.7) color)
-  (draw-circle! ctx (+ x (* radius 0.3)) (+ y (* radius 0.1)) (* radius 0.7) color)
-  ;; Add highlight
-  (draw-circle! ctx (- x (* radius 0.3)) (- y (* radius 0.3)) (* radius 0.25) "rgba(255,255,255,0.25)")
-  ;; Add outline for definition
-  (draw-circle-outline! ctx x (- y (* radius 0.1)) (* radius 1.1) "rgba(0,0,0,0.2)" 1))
-
-(defn- draw-vegetable!
-  "Draw a vegetable plant (bushy mound with prominent leaves)."
-  [ctx x y radius color]
-  ;; Soil/base mound
-  (draw-circle! ctx x (+ y (* radius 0.2)) (* radius 0.8) "#8B7355")
-  ;; Main plant body
-  (draw-circle! ctx x y radius color)
-  ;; Add multiple leaves sprouting up
-  (let [leaf-size (* radius 0.8)
-        leaf-color "#2E7D32"]
-    (draw-leaf! ctx x (- y (* radius 0.7)) leaf-size 0 leaf-color)
-    (draw-leaf! ctx (- x (* radius 0.4)) (- y (* radius 0.4)) leaf-size -0.6 leaf-color)
-    (draw-leaf! ctx (+ x (* radius 0.4)) (- y (* radius 0.4)) leaf-size 0.6 leaf-color)
-    (draw-leaf! ctx (- x (* radius 0.5)) (- y (* radius 0.1)) (* leaf-size 0.7) -0.9 leaf-color)
-    (draw-leaf! ctx (+ x (* radius 0.5)) (- y (* radius 0.1)) (* leaf-size 0.7) 0.9 leaf-color))
-  ;; Outline for definition
-  (draw-circle-outline! ctx x y radius "rgba(0,0,0,0.15)" 1))
-
-(defn- draw-herb!
-  "Draw an herb (aromatic bushy plant with small leaves)."
-  [ctx x y radius color]
-  ;; Small pot/base
-  (draw-circle! ctx x (+ y (* radius 0.3)) (* radius 0.5) "#A1887F")
-  ;; Dense cluster of small leaves
-  (let [leaf-size (* radius 0.7)]
-    ;; Center leaves
-    (draw-leaf! ctx x (- y (* radius 0.5)) leaf-size 0 color)
-    (draw-leaf! ctx x (- y (* radius 0.2)) (* leaf-size 0.9) 0.1 color)
-    ;; Side leaves
-    (draw-leaf! ctx (- x (* radius 0.35)) (- y (* radius 0.3)) (* leaf-size 0.8) -0.5 color)
-    (draw-leaf! ctx (+ x (* radius 0.35)) (- y (* radius 0.3)) (* leaf-size 0.8) 0.5 color)
-    (draw-leaf! ctx (- x (* radius 0.45)) y (* leaf-size 0.6) -0.8 color)
-    (draw-leaf! ctx (+ x (* radius 0.45)) y (* leaf-size 0.6) 0.8 color)
-    ;; Bottom leaves
-    (draw-leaf! ctx (- x (* radius 0.25)) (+ y (* radius 0.15)) (* leaf-size 0.5) -0.4 color)
-    (draw-leaf! ctx (+ x (* radius 0.25)) (+ y (* radius 0.15)) (* leaf-size 0.5) 0.4 color)))
-
-(defn- draw-seed!
-  "Draw a seed (small oval with soil mound)."
-  [ctx x y radius color]
-  ;; Soil mound
-  (draw-circle! ctx x (+ y (* radius 0.5)) (* radius 1.2) "#8B7355")
-  ;; Seed shape - oval
-  (.save ctx)
-  (.translate ctx x y)
-  (.beginPath ctx)
-  (.ellipse ctx 0 0 (* radius 0.6) radius 0 0 (* 2 Math/PI))
-  (set! (.-fillStyle ctx) color)
-  (.fill ctx)
-  ;; Seed highlight
-  (.beginPath ctx)
-  (.ellipse ctx (* radius -0.15) (* radius -0.3) (* radius 0.15) (* radius 0.25) -0.3 0 (* 2 Math/PI))
-  (set! (.-fillStyle ctx) "rgba(255,255,255,0.4)")
-  (.fill ctx)
-  ;; Outline
-  (.beginPath ctx)
-  (.ellipse ctx 0 0 (* radius 0.6) radius 0 0 (* 2 Math/PI))
-  (set! (.-strokeStyle ctx) "rgba(0,0,0,0.3)")
-  (set! (.-lineWidth ctx) 1)
-  (.stroke ctx)
-  (.restore ctx))
-
-(defn- draw-seedling!
-  "Draw a seedling (small sprout with cotyledons)."
-  [ctx x y radius color]
-  ;; Soil mound
-  (draw-circle! ctx x (+ y (* radius 0.4)) (* radius 0.8) "#8B7355")
-  ;; Stem
-  (.beginPath ctx)
-  (.moveTo ctx x (+ y (* radius 0.3)))
-  (.lineTo ctx x (- y (* radius 0.5)))
-  (set! (.-strokeStyle ctx) "#4CAF50")
-  (set! (.-lineWidth ctx) (max 2 (* radius 0.2)))
-  (.stroke ctx)
-  ;; Two cotyledon leaves (seed leaves)
-  (draw-leaf! ctx (- x (* radius 0.3)) (- y (* radius 0.4)) (* radius 0.6) -0.7 color)
-  (draw-leaf! ctx (+ x (* radius 0.3)) (- y (* radius 0.4)) (* radius 0.6) 0.7 color)
-  ;; Small true leaf emerging
-  (draw-leaf! ctx x (- y (* radius 0.6)) (* radius 0.4) 0 "#2E7D32"))
-
-;; Multimethod for plant rendering - dispatches on [stage type]
-(defn- plant-dispatch
-  "Dispatch function for render-plant multimethod."
-  [_ctx plant _zoom]
-  (let [plant-data (get-plant-data (:species-id plant))
-        stage (or (:stage plant) :mature)
-        plant-type (or (:type plant-data) :vegetable)]
-    (if (= stage :mature)
-      [:mature plant-type]
-      [stage nil])))
-
-(defmulti render-plant!
-  "Render a plant based on its stage and type."
-  #'plant-dispatch)
-
-;; Seed stage - all plant types look the same as seeds
-(defmethod render-plant! [:seed nil]
-  [ctx plant _zoom]
-  (let [plant-data (get-plant-data (:species-id plant))
-        [x y] (:position plant)
-        radius (plant-radius plant)
-        color (or (:color plant-data) (:color plant) "#228B22")]
-    (draw-seed! ctx x y radius color)))
-
-;; Seedling stage - small sprouts
-(defmethod render-plant! [:seedling nil]
-  [ctx plant _zoom]
-  (let [plant-data (get-plant-data (:species-id plant))
-        [x y] (:position plant)
-        radius (plant-radius plant)
-        color (or (:color plant-data) (:color plant) "#228B22")]
-    (draw-seedling! ctx x y radius color)))
-
-;; Mature tree
-(defmethod render-plant! [:mature :tree]
-  [ctx plant _zoom]
-  (let [plant-data (get-plant-data (:species-id plant))
-        [x y] (:position plant)
-        radius (plant-radius plant)
-        color (or (:color plant-data) (:color plant) "#228B22")]
-    (draw-tree-crown! ctx x y radius color)))
-
-;; Mature flower
-(defmethod render-plant! [:mature :flower]
-  [ctx plant _zoom]
-  (let [plant-data (get-plant-data (:species-id plant))
-        [x y] (:position plant)
-        radius (plant-radius plant)
-        color (or (:color plant-data) (:color plant) "#228B22")]
-    (draw-flower-petals! ctx x y radius color)
-    (draw-circle! ctx x y (* radius 0.35) "#FFD700")))
-
-;; Mature herb
-(defmethod render-plant! [:mature :herb]
-  [ctx plant _zoom]
-  (let [plant-data (get-plant-data (:species-id plant))
-        [x y] (:position plant)
-        radius (plant-radius plant)
-        color (or (:color plant-data) (:color plant) "#228B22")]
-    (draw-herb! ctx x y radius color)))
-
-;; Mature vegetable
-(defmethod render-plant! [:mature :vegetable]
-  [ctx plant _zoom]
-  (let [plant-data (get-plant-data (:species-id plant))
-        [x y] (:position plant)
-        radius (plant-radius plant)
-        color (or (:color plant-data) (:color plant) "#228B22")]
-    (draw-vegetable! ctx x y radius color)))
-
-;; Default fallback
-(defmethod render-plant! :default
-  [ctx plant zoom]
-  (let [plant-data (get-plant-data (:species-id plant))
-        [x y] (:position plant)
-        radius (plant-radius plant)
-        color (or (:color plant-data) (:color plant) "#228B22")]
-    (draw-circle! ctx x y radius color)
-    (draw-circle-outline! ctx x y radius "rgba(0,0,0,0.3)" (/ 1 zoom))))
+;;
+;; Plants are now rendered using the growth-habit-based symbolic system
+;; from garden.canvas.plant-render. This provides intuitive visual
+;; representations based on plant characteristics.
 
 (defn- render-spacing-circle!
   "Render a spacing/footprint circle for a plant."
   [ctx plant zoom]
-  (let [plant-data (get-plant-data (:species-id plant))
+  (let [plant-data (plants/get-plant (:species-id plant))
         [x y] (:position plant)
         spacing-cm (or (:spacing-cm plant-data) 30)
-        ;; Convert cm to canvas units (1 unit = 1 cm for now)
         radius (/ spacing-cm 2)]
-    ;; Draw dashed circle
     (.beginPath ctx)
-    (.arc ctx x y radius 0 (* 2 Math/PI))
+    (.arc ctx x y radius 0 constants/TWO-PI)
     (set! (.-strokeStyle ctx) "rgba(100, 100, 100, 0.4)")
     (set! (.-lineWidth ctx) (/ 1.5 zoom))
     (.setLineDash ctx #js [(/ 5 zoom) (/ 3 zoom)])
     (.stroke ctx)
     (.setLineDash ctx #js [])
-    ;; Fill with very light color
     (set! (.-fillStyle ctx) "rgba(100, 100, 100, 0.05)")
     (.fill ctx)))
 
@@ -727,45 +478,34 @@
         {:keys [min max]} bounds
         [min-x min-y] min
         [max-x max-y] max
-        ;; Add margin for plant radius (use a generous estimate)
         margin 300]
     (and (>= px (- min-x margin))
          (<= px (+ max-x margin))
          (>= py (- min-y margin))
          (<= py (+ max-y margin)))))
 
-(defn- render-plant-simple!
-  "Render a simplified plant (just a colored circle) for low zoom levels."
-  [ctx plant]
-  (let [plant-data (get-plant-data (:species-id plant))
-        [x y] (:position plant)
-        radius (plant-radius plant)
-        color (or (:color plant-data) (:color plant) "#228B22")]
-    (draw-circle! ctx x y radius color)))
-
 (defn render-plants!
-  "Render all plants with viewport culling and LOD."
-  [ctx state]
-  (let [plants (:plants state)
-        zoom (get-in state [:viewport :zoom])
-        show-spacing? (get-in state [:ui :spacing-circles :visible?])
-        bounds (viewport/visible-bounds)
-        ;; Filter to only visible plants
-        visible-plants (filter #(plant-in-view? % bounds) plants)
-        ;; Use simplified rendering when zoomed out (< 0.2 = seeing large area)
-        use-simple-render? (< zoom 0.2)]
-    ;; Draw spacing circles first (behind plants) - skip when zoomed out
-    (when (and show-spacing? (>= zoom 0.15))
-      (doseq [plant visible-plants]
-        (render-spacing-circle! ctx plant zoom)))
-    ;; Draw plants on top
-    (if use-simple-render?
-      ;; Simple circles when zoomed out
-      (doseq [plant visible-plants]
-        (render-plant-simple! ctx plant))
-      ;; Full detail rendering when zoomed in
-      (doseq [plant visible-plants]
-        (render-plant! ctx plant zoom)))))
+  "Render all plants with viewport culling and LOD.
+   Uses growth-habit-based symbolic rendering for intuitive plant visualization.
+   If bounds is provided, uses it instead of computing visible-bounds."
+  ([ctx state] (render-plants! ctx state nil))
+  ([ctx state bounds]
+   (let [all-plants (:plants state)
+         zoom (get-in state [:viewport :zoom])
+         show-spacing? (get-in state [:ui :spacing-circles :visible?])
+         bounds (or bounds (viewport/visible-bounds))
+         visible-plants (filter #(plant-in-view? % bounds) all-plants)
+         use-simple-render? (< zoom 0.2)]
+    ;; Draw spacing circles first (behind plants)
+     (when (and show-spacing? (>= zoom 0.15))
+       (doseq [plant visible-plants]
+         (render-spacing-circle! ctx plant zoom)))
+    ;; Draw plants using the new symbolic rendering system
+     (if use-simple-render?
+       (doseq [plant visible-plants]
+         (plant-render/render-plant-simple! ctx plant))
+       (doseq [plant visible-plants]
+         (plant-render/render-plant! ctx plant zoom))))))
 
 ;; =============================================================================
 ;; Selection Rendering
@@ -826,7 +566,7 @@
         (doseq [id selected-ids]
           (when-let [plant (state/find-plant id)]
             (let [[x y] (:position plant)
-                  radius (plant-radius plant)]
+                  radius (plant-render/get-plant-radius plant)]
               (draw-circle-outline! ctx x y (+ radius 4) "#0066ff" (/ 3 zoom)))))
 
         nil))))
@@ -885,10 +625,10 @@
           (if (seq row-preview)
             ;; Row mode: show all preview plants
             (doseq [pos row-preview]
-              (render-plant! ctx {:species-id species-id :position pos} zoom))
+              (plant-render/render-plant! ctx {:species-id species-id :position pos} zoom))
             ;; Single mode: show single preview
             (when single-preview
-              (render-plant! ctx {:species-id species-id :position single-preview} zoom)))
+              (plant-render/render-plant! ctx {:species-id species-id :position single-preview} zoom)))
           (set! (.-globalAlpha ctx) 1.0))
         (.restore ctx))
 
@@ -931,18 +671,7 @@
           (.save ctx)
           (let [{:keys [offset zoom]} (:viewport state)
                 [ox oy] offset
-                color (case area-type
-                        :water "#4a90d9"
-                        :bed "#8B6914"
-                        :path "#d4a574"
-                        :structure "#607D8B"
-                        :lawn "#7CB342"
-                        :rocks "#9E9E9E"
-                        :hedge "#2E7D32"
-                        :mulch "#5D4037"
-                        :patio "#8D6E63"
-                        :sand "#E8D5B7"
-                        "#888888")]
+                color (or (area-types/get-color area-type) "#888888")]
             (.translate ctx ox oy)
             (.scale ctx zoom zoom)
             ;; Draw the traced path
@@ -979,12 +708,10 @@
       (let [{:keys [offset zoom]} (:viewport state)
             [ox oy] offset
             [px py] (:position plant)
-            ;; Convert to screen coordinates
             screen-x (+ (* px zoom) ox)
             screen-y (+ (* py zoom) oy)
-            plant-data (get-plant-data (:species-id plant))
+            plant-data (plants/get-plant (:species-id plant))
             name (or (:common-name plant-data) (:species-id plant))
-            ;; Tooltip styling
             padding 6
             font-size 12]
         (.save ctx)
@@ -993,14 +720,12 @@
               tooltip-width (+ text-width (* padding 2))
               tooltip-height (+ font-size (* padding 2))
               tooltip-x (- screen-x (/ tooltip-width 2))
-              tooltip-y (- screen-y (plant-radius plant) 12 tooltip-height)]
-          ;; Background
+              tooltip-y (- screen-y (plant-render/get-plant-radius plant) 12 tooltip-height)]
           (set! (.-fillStyle ctx) "rgba(0,0,0,0.8)")
           (.beginPath ctx)
-          (let [r 4]  ; corner radius
+          (let [r 4]
             (.roundRect ctx tooltip-x tooltip-y tooltip-width tooltip-height r))
           (.fill ctx)
-          ;; Text
           (set! (.-fillStyle ctx) "#fff")
           (set! (.-textAlign ctx) "center")
           (set! (.-textBaseline ctx) "middle")
@@ -1013,4 +738,4 @@
 (defn get-plant-radius
   "Get the display radius for a plant (for hover detection)."
   [plant]
-  (plant-radius plant))
+  (plant-render/get-plant-radius plant))

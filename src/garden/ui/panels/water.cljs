@@ -45,7 +45,7 @@
         [:button.btn-secondary {:on-click #(state/set-graphics-resolution-cm! 50)} "Medium"]
         [:button.btn-secondary {:on-click #(state/set-graphics-resolution-cm! 25)} "High"]]
        [:div {:style {:font-size "11px" :color "#888" :margin-top "4px"}}
-        "Note: Changes apply when restarting simulation or switching to 3D view"]]
+        "Restart simulation to apply resolution changes"]]
 
       ;; Status and control buttons
       [:div.form-field
