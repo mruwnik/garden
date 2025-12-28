@@ -15,6 +15,16 @@
          :water-geometry nil
          :animation-frame nil}))
 
+;; Forward declarations
+(declare process-movement!)
+(declare update-camera-look!)
+(declare camera-yaw)
+(declare camera-pitch)
+
+;; Scale factor: how many cm per 3D unit
+;; Lower = larger terrain (10 means 10cm = 1 unit, so 10x larger than 100cm = 1 unit)
+(def ^:private cm-per-unit 10)
+
 ;; Cache terrain info for water updates
 (defonce ^:private terrain-cache
   (atom {:segments-x 0
@@ -29,9 +39,9 @@
   [topo-state]
   (let [{:keys [elevation-data width height bounds min-elevation max-elevation]} topo-state
         {:keys [min-x min-y max-x max-y]} bounds
-        ;; World dimensions (convert from cm to meters for reasonable scale)
-        world-width (/ (- max-x min-x) 100)
-        world-height (/ (- max-y min-y) 100)
+        ;; World dimensions (convert from cm to 3D units)
+        world-width (/ (- max-x min-x) cm-per-unit)
+        world-height (/ (- max-y min-y) cm-per-unit)
         ;; Create plane geometry with grid resolution
         ;; Use fewer segments for performance (max 512x512)
         segments-x (min 512 (dec width))
@@ -76,8 +86,8 @@
   [topo-state]
   (let [{:keys [bounds]} topo-state
         {:keys [min-x min-y max-x max-y]} bounds
-        world-width (/ (- max-x min-x) 100)
-        world-height (/ (- max-y min-y) 100)
+        world-width (/ (- max-x min-x) cm-per-unit)
+        world-height (/ (- max-y min-y) cm-per-unit)
         {:keys [segments-x segments-y]} @terrain-cache]
     (THREE/PlaneGeometry. world-width world-height segments-x segments-y)))
 
@@ -128,12 +138,11 @@
   [camera]
   (when camera
     (let [pos (.-position camera)
-          scale 100  ; Convert from 3D units (meters) to garden coords (cm)
           ;; In 3D: X=east, Z=south, Y=up
-          ;; Display as: X=east, Y=elevation, Z=north
-          cam-x (* (.-x pos) scale)
-          cam-y (* (.-y pos) scale)           ; Y = elevation (height)
-          cam-z (* (- (.-z pos)) scale)       ; -Z in 3D = north
+          ;; Display as: X=east, Y=elevation, Z=north (in garden coords cm)
+          cam-x (* (.-x pos) cm-per-unit)
+          cam-y (* (.-y pos) cm-per-unit)     ; Y = elevation (height)
+          cam-z (* (- (.-z pos)) cm-per-unit) ; -Z in 3D = north
           ;; Calculate direction
           dir (THREE/Vector3.)
           _ (.getWorldDirection camera dir)
@@ -154,20 +163,21 @@
                         {:position [cam-x cam-y cam-z]
                          :direction [(Math/round degrees) cardinal]}))))
 
-(defn- get-elevation-at-origin
-  "Get the elevation at (0,0) in 3D space units."
-  [topo-state]
+(defn- get-elevation-at-point
+  "Get the elevation at (x, z) in 3D space units.
+   x, z are in 3D coordinates, returns elevation in 3D units."
+  [topo-state x z]
   (let [{:keys [elevation-data width height bounds min-elevation]} topo-state
         {:keys [min-x min-y max-x max-y]} bounds
         {:keys [elev-scale]} @terrain-cache
-        ;; Convert (0,0) garden coords to data grid indices
-        ;; Garden (0,0) maps to center of the terrain bounds
+        ;; Convert 3D coords to garden coords (cm)
+        garden-x (* x cm-per-unit)
+        garden-y (* (- z) cm-per-unit)  ; -Z in 3D = +Y in garden
+        ;; Convert garden coords to data grid indices
         world-width (- max-x min-x)
         world-height (- max-y min-y)
-        ;; Origin (0,0) in garden coords - find corresponding data index
-        ;; Garden coords start at 0, data bounds might be offset
-        data-x (int (* (/ (- 0 min-x) world-width) (dec width)))
-        data-y (int (* (/ (- 0 min-y) world-height) (dec height)))
+        data-x (int (* (/ (- garden-x min-x) world-width) (dec width)))
+        data-y (int (* (/ (- garden-y min-y) world-height) (dec height)))
         ;; Clamp to valid range
         data-x (max 0 (min (dec width) data-x))
         data-y (max 0 (min (dec height) data-y))
@@ -227,10 +237,24 @@
         ;; Camera setup - terrain in XZ plane, Y is up
         ;; X = east/west, Z = south/north (-Z = north), Y = elevation
         {:keys [world-width world-height]} @terrain-cache
-        cam-distance (max world-width world-height 100)]
-    ;; Camera positioned south of terrain (+Z), elevated (Y), looking at center
-    (.set (.-position camera) 0 (* cam-distance 0.7) cam-distance)
-    (.lookAt camera 0 0 0)
+        ;; Get 2D viewport center in garden coordinates
+        viewport (state/viewport)
+        [ox oy] (:offset viewport)
+        zoom (:zoom viewport)
+        {:keys [width height]} (:size viewport)
+        ;; Screen center -> canvas coords: (screen - offset) / zoom
+        center-x (/ (- (/ width 2) ox) zoom)   ; garden coords (cm)
+        center-y (/ (- (/ height 2) oy) zoom)  ; garden coords (cm)
+        ;; Convert to 3D coords, with -Z = north
+        cam-x (/ center-x cm-per-unit)
+        cam-z (- (/ center-y cm-per-unit))
+        ;; Get elevation at that point (add 20 units = 2m at current scale)
+        cam-y (+ (get-elevation-at-point topo-state cam-x cam-z) 20)]
+    ;; Camera at 2D viewport center, terrain height + 2m, looking north
+    (.set (.-position camera) cam-x cam-y cam-z)
+    (reset! camera-yaw 0)
+    (reset! camera-pitch 0)
+    (update-camera-look!)
     ;; Store references
     (swap! scene-state merge
            {:scene scene
@@ -244,6 +268,8 @@
     (letfn [(animate []
               (let [{:keys [renderer scene camera]} @scene-state]
                 (when renderer
+                  ;; Process keyboard movement
+                  (process-movement!)
                   ;; Update water surface from simulation
                   (when (water-sim/sim-running?)
                     (update-water-geometry!))
@@ -259,20 +285,118 @@
   (when-let [camera (:camera @scene-state)]
     (let [pos (.-position camera)
           new-y (+ (.-y pos) delta)]
-      ;; Keep camera above ground (minimum 1 meter)
-      (when (> new-y 1)
+      ;; Keep camera above ground (minimum 1 meter = 10 units)
+      (when (> new-y 10)
         (.set pos (.-x pos) new-y (.-z pos))))))
 
-(defn- handle-keydown!
-  "Handle keyboard events for camera control."
+;; Camera rotation state
+(defonce ^:private camera-yaw (atom 0))    ; radians, 0 = north
+(defonce ^:private camera-pitch (atom 0))  ; radians, 0 = horizontal
+
+;; Track currently pressed keys for smooth movement
+(defonce ^:private keys-pressed (atom #{}))
+
+(defn- update-camera-look!
+  "Update camera orientation based on yaw and pitch."
+  []
+  (when-let [camera (:camera @scene-state)]
+    (let [yaw @camera-yaw
+          pitch @camera-pitch
+          pos (.-position camera)
+          ;; Calculate look direction from yaw/pitch
+          ;; yaw: 0 = north (-Z), increases clockwise
+          look-dist 100
+          look-x (+ (.-x pos) (* look-dist (js/Math.sin yaw) (js/Math.cos pitch)))
+          look-y (+ (.-y pos) (* look-dist (js/Math.sin pitch)))
+          look-z (+ (.-z pos) (* look-dist (- (js/Math.cos yaw)) (js/Math.cos pitch)))]
+      (.lookAt camera look-x look-y look-z))))
+
+(defn move-camera-forward!
+  "Move camera forward/backward along its look direction.
+   Positive delta = forward, negative = backward."
+  [delta]
+  (when-let [camera (:camera @scene-state)]
+    (let [pos (.-position camera)
+          yaw @camera-yaw
+          pitch @camera-pitch
+          ;; Forward direction based on yaw and pitch
+          ;; yaw 0 = north (-Z direction), increases clockwise
+          forward-x (* delta (js/Math.sin yaw) (js/Math.cos pitch))
+          forward-y (* delta (js/Math.sin pitch))
+          forward-z (* delta (- (js/Math.cos yaw)) (js/Math.cos pitch))
+          new-x (+ (.-x pos) forward-x)
+          new-y (+ (.-y pos) forward-y)
+          new-z (+ (.-z pos) forward-z)]
+      ;; Keep camera above ground (minimum 1 meter = 10 units)
+      (.set pos new-x (max 10 new-y) new-z)
+      (update-camera-look!))))
+
+(defn strafe-camera!
+  "Move camera left/right perpendicular to look direction (horizontal only).
+   Positive delta = right, negative = left."
+  [delta]
+  (when-let [camera (:camera @scene-state)]
+    (let [pos (.-position camera)
+          yaw @camera-yaw
+          ;; Right direction is perpendicular to forward (yaw + 90 degrees)
+          right-x (* delta (js/Math.cos yaw))
+          right-z (* delta (js/Math.sin yaw))
+          new-x (+ (.-x pos) right-x)
+          new-z (+ (.-z pos) right-z)]
+      (.set pos new-x (.-y pos) new-z)
+      (update-camera-look!))))
+
+(defn- process-movement!
+  "Process camera movement based on currently pressed keys.
+   Called each animation frame for smooth movement."
+  []
+  (let [keys @keys-pressed
+        sprinting? (keys "Shift")
+        base-delta 0.5  ; 3D units per frame (~3 m/s at 60fps = jogging pace)
+        delta (if sprinting? (* base-delta 5) base-delta)]
+    (when (or (keys "w") (keys "W")) (move-camera-forward! delta))
+    (when (or (keys "s") (keys "S")) (move-camera-forward! (- delta)))
+    (when (or (keys "a") (keys "A")) (strafe-camera! (- delta)))
+    (when (or (keys "d") (keys "D")) (strafe-camera! delta))
+    (when (or (keys "q") (keys "Q")) (adjust-camera-elevation! (- delta)))
+    (when (or (keys "e") (keys "E")) (adjust-camera-elevation! delta))))
+
+(defn- handle-mousemove!
+  "Handle mouse movement for camera rotation (when pointer locked)."
   [e]
-  (let [key (.-key e)]
-    (case key
-      "q" (adjust-camera-elevation! -5)   ; Move down 5 meters
-      "Q" (adjust-camera-elevation! -5)
-      "e" (adjust-camera-elevation! 5)    ; Move up 5 meters
-      "E" (adjust-camera-elevation! 5)
-      nil)))
+  (when (some-> (:renderer @scene-state) .-domElement (= (.-pointerLockElement js/document)))
+    (let [dx (.-movementX e)
+          dy (.-movementY e)
+          sensitivity 0.003]
+      (swap! camera-yaw + (* dx sensitivity))
+      (swap! camera-pitch
+             (fn [p]
+               (-> (- p (* dy sensitivity))
+                   (max -1.5)   ; Limit looking up
+                   (min 1.5)))) ; Limit looking down
+      (update-camera-look!))))
+
+(defn- handle-click!
+  "Request pointer lock on click."
+  [_e]
+  (when-let [canvas (some-> (:renderer @scene-state) .-domElement)]
+    (.requestPointerLock canvas)))
+
+(defn- handle-pointer-lock-change!
+  "Handle pointer lock state changes."
+  []
+  (let [locked? (some-> (:renderer @scene-state) .-domElement (= (.-pointerLockElement js/document)))]
+    (swap! scene-state assoc :pointer-locked? locked?)))
+
+(defn- handle-keydown!
+  "Track key press for continuous movement."
+  [e]
+  (swap! keys-pressed conj (.-key e)))
+
+(defn- handle-keyup!
+  "Track key release."
+  [e]
+  (swap! keys-pressed disj (.-key e)))
 
 (defn- dispose-scene!
   "Clean up Three.js resources."
@@ -312,7 +436,7 @@
       (.setSize renderer width height))))
 
 (defn terrain-3d-component
-  "3D terrain viewer component with static camera."
+  "3D terrain viewer component with Minecraft-style mouse look."
   []
   (let [container-ref (atom nil)
         resize-observer (atom nil)]
@@ -329,25 +453,53 @@
                                 (handle-resize! container)))]
                 (.observe observer container)
                 (reset! resize-observer observer))
-              ;; Add keyboard listener for camera controls
-              (.addEventListener js/window "keydown" handle-keydown!)))))
+              ;; Add keyboard listeners for camera controls
+              (.addEventListener js/window "keydown" handle-keydown!)
+              (.addEventListener js/window "keyup" handle-keyup!)
+              ;; Add mouse listeners for camera control
+              (.addEventListener js/document "mousemove" handle-mousemove!)
+              (.addEventListener js/document "pointerlockchange" handle-pointer-lock-change!)
+              (when-let [canvas (some-> (:renderer @scene-state) .-domElement)]
+                (.addEventListener canvas "click" handle-click!))))))
 
       :component-will-unmount
       (fn [_]
         (when-let [observer @resize-observer]
           (.disconnect observer))
-        ;; Remove keyboard listener
+        ;; Remove event listeners
         (.removeEventListener js/window "keydown" handle-keydown!)
+        (.removeEventListener js/window "keyup" handle-keyup!)
+        (reset! keys-pressed #{})  ; Clear pressed keys
+        (.removeEventListener js/document "mousemove" handle-mousemove!)
+        (.removeEventListener js/document "pointerlockchange" handle-pointer-lock-change!)
+        (when-let [canvas (some-> (:renderer @scene-state) .-domElement)]
+          (.removeEventListener canvas "click" handle-click!))
+        ;; Exit pointer lock if active
+        (when (.-pointerLockElement js/document)
+          (.exitPointerLock js/document))
         (dispose-scene!))
 
       :reagent-render
       (fn []
-        [:div.terrain-3d-container
-         {:ref #(reset! container-ref %)
-          :tab-index 0  ; Make focusable for keyboard events
-          :style {:width "100%"
-                  :height "100%"
-                  :background "#87CEEB"}}])})))
+        (let [locked? (:pointer-locked? @scene-state)]
+          [:div.terrain-3d-container
+           {:ref #(reset! container-ref %)
+            :tab-index 0
+            :style {:width "100%"
+                    :height "100%"
+                    :background "#87CEEB"}}
+           (when-not locked?
+             [:div {:style {:position "absolute"
+                            :top "50%"
+                            :left "50%"
+                            :transform "translate(-50%, -50%)"
+                            :color "white"
+                            :background "rgba(0,0,0,0.6)"
+                            :padding "12px 24px"
+                            :border-radius "8px"
+                            :pointer-events "none"
+                            :font-size "14px"}}
+              "Click to look around (Esc to exit)"])]))})))
 
 (defn has-terrain-data?
   "Check if there's elevation data available for 3D rendering."
