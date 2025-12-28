@@ -132,15 +132,27 @@
       ;; :data is default
       [(:min-elevation topo-state) (:max-elevation topo-state)])))
 
+(defn- sample-rgb
+  "Sample RGB from the rgb-data array at grid position (nearest neighbor)."
+  [rgb-data grid-width grid-height gx gy]
+  (let [ix (max 0 (min (dec grid-width) (int gx)))
+        iy (max 0 (min (dec grid-height) (int gy)))
+        idx (* (+ ix (* iy grid-width)) 4)]
+    [(aget rgb-data idx)
+     (aget rgb-data (+ idx 1))
+     (aget rgb-data (+ idx 2))]))
+
 (defn- render-to-cache!
-  "Render elevation to an offscreen canvas covering the specified bounds.
+  "Render elevation/RGB to an offscreen canvas covering the specified bounds.
+   Uses RGB data if available, otherwise falls back to elevation coloring.
    Returns the offscreen canvas."
   [topo-state cache-bounds color-min color-max target-resolution]
-  (let [{:keys [elevation-data bounds resolution]} topo-state
+  (let [{:keys [elevation-data rgb-data bounds resolution]} topo-state
         grid-width (:width topo-state)
         grid-height (:height topo-state)
         {:keys [min-x min-y]} bounds
         {:keys [left top right bottom]} cache-bounds
+        use-rgb? (some? rgb-data)
         elev-range (- color-max color-min)
         elev-range (if (pos? elev-range) elev-range 1)
         ;; Calculate render dimensions based on target resolution
@@ -160,7 +172,7 @@
         ;; Step size in canvas coords per render pixel
         step-x (/ cache-width render-width)
         step-y (/ cache-height render-height)]
-    ;; Fill pixels by sampling from elevation data
+    ;; Fill pixels by sampling from data
     (dotimes [py render-height]
       (dotimes [px render-width]
         (let [;; Canvas coordinate for this pixel
@@ -169,22 +181,35 @@
               ;; Grid coordinate (fractional)
               gx (/ (- cx min-x) resolution)
               gy (/ (- cy min-y) resolution)
-              ;; Get elevation using bilinear interpolation
-              elev (topo/bilinear-interpolate elevation-data grid-width grid-height gy gx)
               pixel-idx (* (+ px (* py render-width)) 4)]
-          (if (or (nil? elev) (js/isNaN elev))
-            ;; Transparent for no-data
-            (do (aset pixels pixel-idx 0)
-                (aset pixels (+ pixel-idx 1) 0)
-                (aset pixels (+ pixel-idx 2) 0)
-                (aset pixels (+ pixel-idx 3) 0))
-            ;; Color from elevation
-            (let [normalized (max 0 (min 1 (/ (- elev color-min) elev-range)))
-                  [r g b] (elevation->color normalized)]
-              (aset pixels pixel-idx r)
-              (aset pixels (+ pixel-idx 1) g)
-              (aset pixels (+ pixel-idx 2) b)
-              (aset pixels (+ pixel-idx 3) 255))))))
+          (if use-rgb?
+            ;; Use RGB data directly
+            (if (and (>= gx 0) (< gx grid-width) (>= gy 0) (< gy grid-height))
+              (let [[r g b] (sample-rgb rgb-data grid-width grid-height gx gy)]
+                (aset pixels pixel-idx r)
+                (aset pixels (+ pixel-idx 1) g)
+                (aset pixels (+ pixel-idx 2) b)
+                (aset pixels (+ pixel-idx 3) 255))
+              ;; Out of bounds - transparent
+              (do (aset pixels pixel-idx 0)
+                  (aset pixels (+ pixel-idx 1) 0)
+                  (aset pixels (+ pixel-idx 2) 0)
+                  (aset pixels (+ pixel-idx 3) 0)))
+            ;; Fall back to elevation coloring
+            (let [elev (topo/bilinear-interpolate elevation-data grid-width grid-height gy gx)]
+              (if (or (nil? elev) (js/isNaN elev))
+                ;; Transparent for no-data
+                (do (aset pixels pixel-idx 0)
+                    (aset pixels (+ pixel-idx 1) 0)
+                    (aset pixels (+ pixel-idx 2) 0)
+                    (aset pixels (+ pixel-idx 3) 0))
+                ;; Color from elevation
+                (let [normalized (max 0 (min 1 (/ (- elev color-min) elev-range)))
+                      [r g b] (elevation->color normalized)]
+                  (aset pixels pixel-idx r)
+                  (aset pixels (+ pixel-idx 1) g)
+                  (aset pixels (+ pixel-idx 2) b)
+                  (aset pixels (+ pixel-idx 3) 255))))))))
     (.putImageData off-ctx image-data 0 0)
     offscreen))
 

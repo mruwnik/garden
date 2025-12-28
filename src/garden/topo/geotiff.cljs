@@ -81,6 +81,50 @@
                    (min min-val v)
                    (max max-val v))))))))
 
+(defn- downsample-rgb
+  "Downsample RGB bands from (src-w x src-h) to (dst-w x dst-h).
+   Returns a Uint8ClampedArray with RGBA values (A=255)."
+  [r-array g-array b-array src-w src-h dst-w dst-h]
+  (let [dst-array (js/Uint8ClampedArray. (* dst-w dst-h 4))
+        x-ratio (/ src-w dst-w)
+        y-ratio (/ src-h dst-h)]
+    (dotimes [dy dst-h]
+      (dotimes [dx dst-w]
+        (let [sx (int (* dx x-ratio))
+              sy (int (* dy y-ratio))
+              src-idx (+ sx (* sy src-w))
+              dst-idx (* (+ dx (* dy dst-w)) 4)
+              r (aget r-array src-idx)
+              g (aget g-array src-idx)
+              b (aget b-array src-idx)]
+          (aset dst-array dst-idx (min 255 (max 0 (int r))))
+          (aset dst-array (+ dst-idx 1) (min 255 (max 0 (int g))))
+          (aset dst-array (+ dst-idx 2) (min 255 (max 0 (int b))))
+          (aset dst-array (+ dst-idx 3) 255))))
+    dst-array))
+
+(defn- extract-rgb
+  "Extract RGB data from rasters if bands 0,1,2 are available.
+   Returns Uint8ClampedArray with RGBA values, or nil."
+  [rasters orig-w orig-h target-w target-h needs-downsample?]
+  (let [band-count (.-length rasters)]
+    (when (>= band-count 3)
+      (let [r-array (aget rasters 0)
+            g-array (aget rasters 1)
+            b-array (aget rasters 2)]
+        (if needs-downsample?
+          (downsample-rgb r-array g-array b-array orig-w orig-h target-w target-h)
+          ;; Create RGBA array from separate bands
+          (let [size (* orig-w orig-h)
+                rgba (js/Uint8ClampedArray. (* size 4))]
+            (dotimes [i size]
+              (let [idx (* i 4)]
+                (aset rgba idx (min 255 (max 0 (int (aget r-array i)))))
+                (aset rgba (+ idx 1) (min 255 (max 0 (int (aget g-array i)))))
+                (aset rgba (+ idx 2) (min 255 (max 0 (int (aget b-array i)))))
+                (aset rgba (+ idx 3) 255)))
+            rgba))))))
+
 (defn- process-rasters
   "Process raster data and create topo-data map.
    band-index: which band to use for elevation (0-indexed, default 0)"
@@ -92,6 +136,8 @@
                      (downsample-typed-array orig-array orig-width orig-height target-w target-h)
                      orig-array)
         [min-elev max-elev] (find-min-max elev-array)
+        ;; Extract RGB if available (bands 0,1,2)
+        rgb-data (extract-rgb rasters orig-width orig-height target-w target-h needs-downsample?)
         effective-scale (if needs-downsample?
                           (* scale-m-per-pixel (/ orig-width target-w))
                           scale-m-per-pixel)
@@ -99,6 +145,7 @@
         total-w (* target-w resolution-cm)
         total-h (* target-h resolution-cm)]
     {:elevation-data elev-array
+     :rgb-data rgb-data  ; Uint8ClampedArray with RGBA, or nil
      :width target-w
      :height target-h
      :bounds {:min-x (- (/ total-w 2))

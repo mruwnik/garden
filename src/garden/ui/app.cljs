@@ -5,6 +5,7 @@
             [garden.canvas.core :as canvas]
             [garden.canvas.viewport :as viewport]
             [garden.canvas.render :as render]
+            [garden.canvas.terrain3d :as terrain3d]
             [garden.topo.core :as topo]
             [garden.tools.protocol :as tools]
             [garden.ui.toolbar :as toolbar]
@@ -14,6 +15,7 @@
             [garden.ui.panels.reference :as reference]
             [garden.ui.panels.topo :as topo-panel]
             [garden.ui.panels.ground :as ground]
+            [garden.ui.panels.water :as water-panel]
             ;; Load tools to register them
             [garden.tools.pan]
             [garden.tools.select]
@@ -202,11 +204,48 @@
        [:div.loading-spinner]
        [:div.loading-message (or message "Processing...")]])))
 
+(defn status-bar-3d
+  "Status bar for 3D view showing camera position and direction."
+  []
+  (let [camera-3d (state/get-state :camera-3d)
+        cam-pos (:position camera-3d)
+        cam-dir (:direction camera-3d)
+        has-geo? (topo/has-geo-info?)
+        ;; Convert camera XZ position to lat/lon (Y is elevation)
+        geo-coords (when (and cam-pos has-geo?)
+                     (let [[x _y z] cam-pos]
+                       (topo/garden->latlon [x z])))]
+    [:div.status-bar
+     [:span.status-item "3D View"]
+     [:span.status-separator "|"]
+     [:span.status-item
+      (if cam-pos
+        (let [[x y z] cam-pos]
+          ;; Convert from cm to meters
+          (str "X: " (.toFixed (/ x 100) 1) "m Y: " (.toFixed (/ y 100) 1) "m Z: " (.toFixed (/ z 100) 1) "m"))
+        "Cam: --")]
+     (when has-geo?
+       [:<>
+        [:span.status-separator "|"]
+        [:span.status-item
+         (if geo-coords
+           (let [[lat lon] geo-coords]
+             (str (.toFixed lat 5) "°N, " (.toFixed lon 5) "°E"))
+           "-- °N, -- °E")]])
+     [:span.status-separator "|"]
+     [:span.status-item
+      (if cam-dir
+        (let [[degrees cardinal] cam-dir]
+          (str "Facing: " cardinal " (" degrees "°)"))
+        "Facing: --")]]))
+
 (defn app
   "Root application component."
   []
   (let [chat-open? (state/get-state :chat :open?)
         ground-modal-open? (state/get-state :ui :ground-modal-open?)
+        water-modal-open? (state/get-state :ui :water-modal-open?)
+        view-mode (state/get-state :view-mode)
         ;; Keep legacy modals for backwards compatibility
         ref-modal-open? (state/get-state :ui :reference-modal-open?)
         topo-modal-open? (state/get-state :ui :topo-modal-open?)]
@@ -215,8 +254,15 @@
      [:div.main-content
       [left-panel]
       [:div.canvas-container
-       [canvas-component]
-       [status-bar]]
+       (if (= view-mode :3d)
+         ;; 3D terrain view
+         [:<>
+          [terrain3d/terrain-3d-component]
+          [status-bar-3d]]
+         ;; 2D canvas view (default)
+         [:<>
+          [canvas-component]
+          [status-bar]])]
       [right-panel]
       ;; Chat panel
       (when chat-open?
@@ -226,6 +272,9 @@
       ;; Ground data modal (unified)
       (when ground-modal-open?
         [ground/ground-modal])
+      ;; Water simulation settings modal
+      (when water-modal-open?
+        [water-panel/water-settings-modal])
       ;; Legacy modals (kept for backwards compatibility)
       (when ref-modal-open?
         [reference/reference-modal])

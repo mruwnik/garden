@@ -1,6 +1,8 @@
 (ns garden.ui.toolbar
   (:require [garden.state :as state]
-            [garden.tools.protocol :as tools]))
+            [garden.tools.protocol :as tools]
+            [garden.canvas.core :as canvas]
+            [garden.simulation.water :as water-sim]))
 
 (defn tool-button
   "A single tool button."
@@ -104,6 +106,27 @@
        :class (when (and has-data? any-visible?) "active")
        :on-click #(state/set-state! [:ui :ground-modal-open?] true)}
       "Ground"])
+
+   ;; 2D/3D view toggle (only shown when topo data available)
+   (let [has-topo? (some? (state/topo-elevation-data))
+         view-mode (state/get-state :view-mode)]
+     (when has-topo?
+       [:button.tool-btn
+        {:title (if (= view-mode :3d) "Switch to 2D view" "Switch to 3D view")
+         :class (when (= view-mode :3d) "active")
+         :on-click #(state/set-state! [:view-mode] (if (= view-mode :3d) :2d :3d))}
+        (if (= view-mode :3d) "2D" "3D")]))
+
+   ;; Water simulation controls (only shown when topo data available)
+   (let [has-topo? (some? (state/topo-elevation-data))
+         running? (water-sim/running?)
+         raining? (water-sim/raining?)]
+     (when has-topo?
+       [:button.tool-btn
+        {:title "Water simulation settings"
+         :class (when raining? "active")
+         :on-click #(state/set-state! [:ui :water-modal-open?] true)}
+        "Rain"]))
 
    [:div.toolbar-separator]
 

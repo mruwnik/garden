@@ -13,11 +13,18 @@
    :library {:plants {}
              :filter {:search "" :type nil}}
 
-   ;; Viewport
+   ;; Viewport (2D canvas)
    :viewport {:offset [0 0]
               :zoom 1.0
               :size {:width 800 :height 600}
               :ctx nil}
+
+   ;; Viewport (3D view) - tracks camera for when switching back
+   :viewport-3d {:target [0 0 0]      ; orbit center point
+                 :camera-pos [0 -100 80]}  ; camera position
+
+   ;; View mode - :2d or :3d
+   :view-mode :2d
 
    ;; Tool state
    :tool {:active :select
@@ -38,7 +45,7 @@
                  :bottom {:open? false :height 120}}
         :grid {:visible? true :spacing 50 :snap? false :labels? true}
         :spacing-circles {:visible? false}
-        :background {:visible? true}
+        :background {:visible? false}
         :reference-image {:visible? false
                           :url nil         ; data URL or file URL
                           :image nil       ; loaded Image object
@@ -80,7 +87,15 @@
                    :rotation 0}}    ; degrees
 
    ;; Manual elevation points (alternative to GeoTIFF)
-   :topo-points []})
+   :topo-points []
+
+   ;; Water simulation state (for UI reactivity)
+   :water-sim {:running? false
+               :raining? false
+               ;; SI units configuration
+               :rain-rate-mm-hr 10.0      ; mm/hour - typical light rain is 2.5, moderate 7.5, heavy 50+
+               :evaporation-mm-hr 5.0     ; mm/hour - typical is 2-6 mm/day, but faster for sim
+               :infiltration-mm-hr 0.0}})
 
 (defonce app-state (r/atom initial-state))
 
@@ -378,9 +393,10 @@
 
 (defn set-topo-data!
   "Set the full topo data from a parsed source (GeoTIFF, etc.)"
-  [{:keys [elevation-data bounds resolution min-elevation max-elevation source georef width height geo-info band-count selected-band]}]
+  [{:keys [elevation-data rgb-data bounds resolution min-elevation max-elevation source georef width height geo-info band-count selected-band]}]
   (swap! app-state update :topo merge
          {:elevation-data elevation-data
+          :rgb-data rgb-data  ; Uint8ClampedArray with RGBA, or nil
           :bounds bounds
           :resolution resolution
           :min-elevation min-elevation
