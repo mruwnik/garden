@@ -1,14 +1,28 @@
 (ns garden.tools.select
+  "Selection and editing tool for areas and plants.
+
+   Features:
+   - Click to select areas or plants
+   - Shift+click to multi-select
+   - Drag to move selected items
+   - Drag vertices to reshape areas
+   - Click on edges to add new vertices
+   - Delete/Backspace to remove selected items or vertices"
   (:require [garden.tools.protocol :as proto]
             [garden.state :as state]
             [garden.util.geometry :as geom]
             [garden.canvas.render :as render]))
 
-;; Vertex handle hit radius (in canvas units)
+;; =============================================================================
+;; Constants
+
 (def ^:private vertex-hit-radius 12)
 
 ;; Edge hit distance for inserting new points
 (def ^:private edge-hit-distance 8)
+
+;; =============================================================================
+;; Hit Detection
 
 (defn- find-vertex-at
   "Find if click is near a vertex of a selected area.
@@ -81,6 +95,9 @@
     (if snap?
       (geom/snap-to-grid point spacing)
       point)))
+
+;; =============================================================================
+;; Tool Implementation
 
 (defrecord SelectTool []
   proto/ITool

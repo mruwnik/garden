@@ -1,4 +1,11 @@
 (ns garden.canvas.core
+  "Canvas rendering orchestration.
+
+   This namespace coordinates all canvas rendering:
+   - Dirty tracking for efficient updates
+   - Layer ordering (background, topo, water, grid, areas, plants)
+   - Performance monitoring
+   - Render scheduling via requestAnimationFrame"
   (:require [garden.state :as state]
             [garden.canvas.viewport :as viewport]
             [garden.canvas.grid :as grid]
@@ -8,7 +15,9 @@
             [garden.canvas.water :as water]
             [garden.simulation.water :as water-sim]))
 
-;; Dirty tracking for efficient rendering
+;; =============================================================================
+;; Dirty Tracking
+
 (defonce ^:private last-render-state (atom nil))
 (defonce ^:private render-scheduled? (atom false))
 
@@ -22,7 +31,9 @@
   [state]
   (not= (render-keys state) @last-render-state))
 
-;; Performance tracking
+;; =============================================================================
+;; Performance Tracking
+
 (defonce ^:private last-render-time (atom 0))
 (defonce ^:private render-times (atom []))
 
@@ -32,6 +43,9 @@
   (let [times @render-times]
     (when (seq times)
       (/ (reduce + times) (count times)))))
+
+;; =============================================================================
+;; Core Render Loop
 
 (defn render!
   "Render the current state to the canvas."
@@ -121,63 +135,35 @@
   (reset! last-render-state nil)
   (render!))
 
-;; Watch app-state for changes and trigger renders
+;; =============================================================================
+;; Reactive Rendering
+
 (defonce ^:private render-watcher
   (add-watch state/app-state :render
              (fn [_ _ _ _]
                (schedule-render!))))
 
-;; Water simulation loop - decoupled from rendering for performance
-(defonce ^:private sim-loop-id (atom nil))
-(defonce ^:private render-pending? (atom false))
-
-(defn- request-water-render!
-  "Request a render on next animation frame (coalesces multiple requests)."
-  []
-  (when-not @render-pending?
-    (reset! render-pending? true)
-    (js/requestAnimationFrame
-     (fn [_]
-       (reset! render-pending? false)
-       (render!)))))
-
-(defn- simulation-loop!
-  "Run one simulation step and schedule next.
-   Simulation runs at its own rate, rendering is decoupled via requestAnimationFrame."
-  []
-  (when (water-sim/sim-running?)
-    (water-sim/simulation-step!)
-    ;; Request render (coalesced via requestAnimationFrame)
-    (request-water-render!)
-    ;; Schedule next simulation step using configured interval
-    (reset! sim-loop-id (js/setTimeout simulation-loop! (water-sim/get-sim-interval)))))
+;; =============================================================================
+;; Water Controls (delegated to simulation)
 
 (defn start-rain!
   "Start rain (and simulation if not running)."
   []
-  (water-sim/start-rain!)
-  (when-not @sim-loop-id
-    (simulation-loop!)))
+  (water-sim/start-rain!))
 
 (defn stop-rain!
   "Stop rain but keep simulation running so water flows away."
   []
   (water-sim/stop-rain!))
 
-(defn stop-water-simulation!
-  "Stop the water simulation completely."
-  []
-  (water-sim/stop-simulation!)
-  (when-let [id @sim-loop-id]
-    (js/clearTimeout id)
-    (reset! sim-loop-id nil))
-  (force-render!))
-
 (defn reset-water!
-  "Clear all water but keep simulation state."
+  "Clear all water."
   []
   (water-sim/reset-water!)
   (force-render!))
+
+;; =============================================================================
+;; Canvas Initialization
 
 (defn init-canvas!
   "Initialize canvas with the given DOM element."

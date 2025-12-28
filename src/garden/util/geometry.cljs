@@ -1,6 +1,14 @@
-(ns garden.util.geometry)
+(ns garden.util.geometry
+  "2D geometry utilities for the garden planner.
 
-;; Vector operations
+   Provides:
+   - Vector operations (scale, translate, dot product, distance)
+   - Line operations (linear equation, point-to-segment distance)
+   - Polygon operations (point-in-polygon, centroid, bounding box)
+   - Grid snapping")
+
+;; =============================================================================
+;; Vector Operations
 
 (defn scale
   "Scale a point by factor s."
@@ -22,7 +30,8 @@
   [[x1 y1] [x2 y2]]
   (Math/sqrt (+ (Math/pow (- x1 x2) 2) (Math/pow (- y1 y2) 2))))
 
-;; Line operations
+;; =============================================================================
+;; Line Operations
 
 (defn linear-equation
   "Return a linear equation function going through two points."
@@ -51,7 +60,8 @@
       (<= c2 c1) (points-distance [xp yp] [x2 y2])
       :else (points-distance [xp yp] [(+ x1 (* b vx)) (+ y1 (* b vy))]))))
 
-;; Polygon operations
+;; =============================================================================
+;; Polygon Operations
 
 (defn- winding-score
   "Return the winding number contribution for a line segment."
@@ -114,7 +124,8 @@
       {:min [(apply min xs) (apply min ys)]
        :max [(apply max xs) (apply max ys)]})))
 
-;; Grid snapping
+;; =============================================================================
+;; Grid Snapping
 
 (defn snap-to-grid
   "Snap a point to the nearest grid intersection."

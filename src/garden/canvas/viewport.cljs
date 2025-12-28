@@ -1,5 +1,13 @@
 (ns garden.canvas.viewport
+  "Viewport coordinate transformations.
+
+   Handles conversion between:
+   - Screen coordinates (pixels from canvas top-left)
+   - Canvas/world coordinates (centimeters in garden space)"
   (:require [garden.state :as state]))
+
+;; =============================================================================
+;; Coordinate Conversion
 
 (defn screen->canvas
   "Convert screen (pixel) coordinates to canvas (world) coordinates."

@@ -1,9 +1,17 @@
 (ns garden.canvas.render
+  "Canvas rendering for areas, plants, selections and overlays.
+
+   This namespace handles the 2D rendering of:
+   - Areas (beds, paths, water features, structures)
+   - Plants (with type-specific graphics)
+   - Selection highlights and handles
+   - Tool overlays and tooltips"
   (:require [garden.state :as state]
             [garden.canvas.viewport :as viewport]
             [garden.ui.panels.library :as library]))
 
-;; Background rendering
+;; =============================================================================
+;; Background Rendering
 
 (defn render-background!
   "Render a grass/soil background texture with aggressive LOD optimization."
@@ -104,7 +112,8 @@
   (set! (.-lineWidth ctx) line-width)
   (.stroke ctx))
 
-;; Area rendering
+;; =============================================================================
+;; Area Rendering
 
 (defn- clip-to-polygon!
   "Set up clipping region for a polygon with optional holes. Call .restore to remove clip."
@@ -437,7 +446,8 @@
     (doseq [area sorted-areas]
       (render-area! ctx area zoom ref-visible?))))
 
-;; Plant rendering
+;; =============================================================================
+;; Plant Rendering
 
 (defn- get-plant-data
   "Look up plant species data from the library."
@@ -757,7 +767,8 @@
       (doseq [plant visible-plants]
         (render-plant! ctx plant zoom)))))
 
-;; Selection rendering
+;; =============================================================================
+;; Selection Rendering
 
 (defn render-selection!
   "Render selection highlights."
@@ -820,7 +831,8 @@
 
         nil))))
 
-;; Tool overlay rendering
+;; =============================================================================
+;; Tool Overlay Rendering
 
 (defn render-tool-overlay!
   "Render tool-specific overlay (in screen coordinates)."
@@ -956,7 +968,8 @@
       ;; Default: no overlay
       nil)))
 
-;; Tooltip rendering
+;; =============================================================================
+;; Tooltip Rendering
 
 (defn render-tooltip!
   "Render a tooltip for hovered plant (in screen coordinates)."
@@ -994,6 +1007,10 @@
           (.fillText ctx name screen-x (+ tooltip-y (/ tooltip-height 2))))
         (.restore ctx)))))
 
-;; Public helper for hover detection
-(defn get-plant-radius [plant]
+;; =============================================================================
+;; Public API
+
+(defn get-plant-radius
+  "Get the display radius for a plant (for hover detection)."
+  [plant]
   (plant-radius plant))

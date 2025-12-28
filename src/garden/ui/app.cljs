@@ -1,4 +1,12 @@
 (ns garden.ui.app
+  "Root application component.
+
+   This namespace assembles the complete garden planning application:
+   - Canvas for 2D/3D garden visualization
+   - Toolbar with tools and controls
+   - Side panels for plants and properties
+   - Status bar with coordinates and state
+   - Modal dialogs for data import"
   (:require [reagent.core :as r]
             [reagent.dom :as rdom]
             [garden.state :as state]
@@ -27,6 +35,9 @@
             [garden.tools.contour-trace]
             [garden.tools.elevation-point]))
 
+;; =============================================================================
+;; Canvas Event Handling
+
 (defn- get-canvas-point
   "Get the point relative to the canvas from a mouse event."
   [event canvas-el]
@@ -35,10 +46,24 @@
         y (- (.-clientY event) (.-top rect))]
     [x y]))
 
+(defn- handle-wheel
+  "Handle wheel events for zooming. Defined outside component for stable reference."
+  [canvas-ref e]
+  (.preventDefault e)
+  (when-let [el @canvas-ref]
+    (let [point (get-canvas-point e el)
+          delta (.-deltaY e)
+          factor (if (neg? delta) 1.1 0.9)]
+      (state/zoom-at! point factor))))
+
+;; =============================================================================
+;; Canvas Component
+
 (defn canvas-component
   "The main canvas component."
   []
-  (let [canvas-ref (atom nil)]
+  (let [canvas-ref (atom nil)
+        wheel-handler (atom nil)]
     (r/create-class
      {:component-did-mount
       (fn [_]
@@ -50,7 +75,17 @@
                 height (- (.-clientHeight parent) 25)]
             (set! (.-width el) width)
             (set! (.-height el) height)
-            (canvas/resize-canvas! width height))))
+            (canvas/resize-canvas! width height))
+          ;; Add wheel listener with passive: false to allow preventDefault
+          (let [handler #(handle-wheel canvas-ref %)]
+            (reset! wheel-handler handler)
+            (.addEventListener el "wheel" handler #js {:passive false}))))
+
+      :component-will-unmount
+      (fn [_]
+        (when-let [el @canvas-ref]
+          (when-let [handler @wheel-handler]
+            (.removeEventListener el "wheel" handler))))
 
       :component-did-update
       (fn [_]
@@ -94,14 +129,8 @@
               (state/set-state! [:ui :hover :plant-id] nil)
               (state/set-state! [:ui :mouse :canvas-pos] nil))
 
-            :on-wheel
-            (fn [e]
-              (.preventDefault e)
-              (when-let [el @canvas-ref]
-                (let [point (get-canvas-point e el)
-                      delta (.-deltaY e)
-                      factor (if (neg? delta) 1.1 0.9)]
-                  (state/zoom-at! point factor))))
+            ;; Note: wheel handler added manually in component-did-mount
+            ;; with {passive: false} to allow preventDefault
 
             :on-key-down
             (fn [e]
@@ -125,6 +154,9 @@
                                                       :planted-date (js/Date.)
                                                       :source :seedling})]
                       (state/select! :plant #{plant-id}))))))}]))})))
+
+;; =============================================================================
+;; Side Panels
 
 (defn left-panel
   "Left panel with plant library."
@@ -153,6 +185,9 @@
          {:on-click #(state/set-state! [:ui :panels :right :open?] false)}
          "×"]]
        [properties/properties-panel]])))
+
+;; =============================================================================
+;; Status Bar
 
 (defn status-bar
   "Status bar showing mouse coordinates and other info."
@@ -193,6 +228,9 @@
      [:span.status-item (str "Zoom: " (Math/round (* zoom 100)) "%")]
      [:span.status-separator "|"]
      [:span.status-item (str "Tool: " (name active-tool))]]))
+
+;; =============================================================================
+;; Loading Overlay
 
 (defn loading-overlay
   "Overlay shown during long-running operations."
@@ -239,6 +277,9 @@
           (str "Facing: " cardinal " (" degrees "°)"))
         "Facing: --")]]))
 
+;; =============================================================================
+;; Root Application
+
 (defn app
   "Root application component."
   []
@@ -282,6 +323,9 @@
         [topo-panel/topo-modal])
       ;; Loading overlay
       [loading-overlay]]]))
+
+;; =============================================================================
+;; Mount
 
 (defn mount-app
   "Mount the app to the DOM."

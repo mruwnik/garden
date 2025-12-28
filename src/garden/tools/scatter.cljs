@@ -1,8 +1,38 @@
 (ns garden.tools.scatter
-  "Scatter tool - draw a rectangle and scatter plants in it."
+  "Scatter tool for mass planting.
+
+   Draw a rectangle and scatter plants within it, respecting the
+   plant's natural spacing. Uses jitter for natural-looking placement.
+   Press 0-9 to set target plant count (0=100, 1-9=10-90)."
   (:require [garden.tools.protocol :as p]
             [garden.state :as state]
             [garden.ui.panels.library :as library]))
+
+(defn calculate-grid-dimensions
+  "Calculate grid dimensions for scattering plants.
+   Returns {:cols :rows :max-plants :actual-count}."
+  [width height spacing count-target]
+  (let [cols (max 1 (int (/ width spacing)))
+        rows (max 1 (int (/ height spacing)))
+        max-plants (* cols rows)
+        actual-count (min count-target max-plants)]
+    {:cols cols
+     :rows rows
+     :max-plants max-plants
+     :actual-count actual-count}))
+
+(defn generate-grid-positions
+  "Generate grid positions with optional jitter.
+   Returns seq of [x y] positions without shuffling."
+  [min-x min-y spacing cols rows jitter-ratio]
+  (for [col (range cols)
+        row (range rows)]
+    (let [base-x (+ min-x (* col spacing) (/ spacing 2))
+          base-y (+ min-y (* row spacing) (/ spacing 2))
+          jitter (* spacing jitter-ratio)
+          x (+ base-x (- (rand jitter) (/ jitter 2)))
+          y (+ base-y (- (rand jitter) (/ jitter 2)))]
+      [x y])))
 
 (defn- scatter-plants!
   "Scatter plants in the given rectangle."
@@ -10,25 +40,13 @@
   (let [;; Get plant spacing from library
         plant-data (first (filter #(= (:id %) species-id) library/sample-plants))
         spacing (or (:spacing-cm plant-data) 50)
-        ;; Calculate how many can actually fit with proper spacing
         width (- max-x min-x)
         height (- max-y min-y)
-        cols (max 1 (int (/ width spacing)))
-        rows (max 1 (int (/ height spacing)))
-        max-plants (* cols rows)
-        actual-count (min count-target max-plants)
+        {:keys [cols rows actual-count]} (calculate-grid-dimensions width height spacing count-target)
         ;; Generate positions with spacing + jitter
         positions (take actual-count
                         (shuffle
-                         (for [col (range cols)
-                               row (range rows)]
-                           (let [base-x (+ min-x (* col spacing) (/ spacing 2))
-                                 base-y (+ min-y (* row spacing) (/ spacing 2))
-                                 ;; Add random jitter (up to 30% of spacing)
-                                 jitter (* spacing 0.3)
-                                 x (+ base-x (- (rand jitter) (/ jitter 2)))
-                                 y (+ base-y (- (rand jitter) (/ jitter 2)))]
-                             [x y]))))
+                         (generate-grid-positions min-x min-y spacing cols rows 0.3)))
         ;; Create all plants as a batch (single undo operation)
         plants (mapv (fn [[x y]]
                        {:species-id species-id

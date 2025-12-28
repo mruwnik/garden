@@ -1,13 +1,32 @@
 (ns garden.llm
+  "Claude AI integration for garden planning assistance.
+
+   Provides:
+   - Tool definitions for garden manipulation (add/remove areas, plants, paths)
+   - Streaming API integration with Anthropic's Claude
+   - Tool execution handlers that modify garden state
+   - System prompt with garden context awareness
+
+   Tools available to the AI:
+   - add_area, add_plant, add_plants_row, scatter_plants
+   - add_path, add_water
+   - remove_area, remove_plant, remove_plants_in_area
+   - clear_garden, get_garden_state, list_species
+   - set_zoom, pan_to"
   (:require [garden.state :as state]
             [garden.ui.panels.library :as library]
             [clojure.string :as str]))
 
-;; Configuration - stored in localStorage
+;; =============================================================================
+;; Configuration
+
 (defonce config
   (atom {:api-key (or (.getItem js/localStorage "garden-api-key") "")
          :api-url "https://api.anthropic.com/v1/messages"
          :model "claude-haiku-4-5"}))
+
+;; =============================================================================
+;; Chat History Management
 
 ;; Maximum number of messages to keep in chat history
 ;; This prevents context overflow and tool_use/tool_result mismatches
@@ -41,7 +60,9 @@
   (.setItem js/localStorage "garden-api-key" key)
   (swap! config assoc :api-key key))
 
-;; Abort controller for cancelling in-flight requests
+;; =============================================================================
+;; Request Management
+
 (defonce current-request (atom nil))
 
 (defn cancel-request!

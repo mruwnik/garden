@@ -1,5 +1,36 @@
 (ns garden.canvas.grid
+  "Grid overlay rendering with LOD optimization.
+
+   Draws a measurement grid that adapts its density based on zoom level,
+   with optional labels showing distances in meters."
   (:require [garden.canvas.viewport :as viewport]))
+
+;; =============================================================================
+;; LOD Calculations
+
+(defn calculate-lod-spacing
+  "Calculate grid spacing based on zoom level for LOD optimization.
+   Returns a multiplier of base-spacing to use."
+  [zoom]
+  (cond
+    (< zoom 0.015) 20
+    (< zoom 0.03)  10
+    (< zoom 0.06)  5
+    (< zoom 0.12)  2
+    :else          1))
+
+(defn calculate-label-spacing
+  "Calculate label spacing multiplier based on zoom level."
+  [zoom]
+  (cond
+    (< zoom 0.01) 10
+    (< zoom 0.02) 5
+    (< zoom 0.05) 4
+    (< zoom 0.1)  2
+    :else         1))
+
+;; =============================================================================
+;; Grid Rendering
 
 (defn render!
   "Render the grid overlay with LOD optimization."
@@ -7,13 +38,7 @@
   (let [zoom (get-in state [:viewport :zoom])
         base-spacing (get-in state [:ui :grid :spacing])
         ;; Adjust spacing based on zoom to avoid too many lines
-        ;; At low zoom, use larger spacing (multiples of base)
-        spacing (cond
-                  (< zoom 0.015) (* base-spacing 20)
-                  (< zoom 0.03)  (* base-spacing 10)
-                  (< zoom 0.06)  (* base-spacing 5)
-                  (< zoom 0.12)  (* base-spacing 2)
-                  :else base-spacing)
+        spacing (* base-spacing (calculate-lod-spacing zoom))
         {:keys [min max]} (viewport/visible-bounds)
         [min-x min-y] min
         [max-x max-y] max
@@ -61,12 +86,7 @@
 
       ;; Draw measurement labels (optional)
       (when (get-in state [:ui :grid :labels?])
-        (let [label-spacing (cond
-                              (< zoom 0.01) (* spacing 10)
-                              (< zoom 0.02) (* spacing 5)
-                              (< zoom 0.05) (* spacing 4)
-                              (< zoom 0.1) (* spacing 2)
-                              :else spacing)
+        (let [label-spacing (* spacing (calculate-label-spacing zoom))
               font-size (/ 12 zoom)]
           (set! (.-fillStyle ctx) "#666")
           (set! (.-font ctx) (str font-size "px sans-serif"))

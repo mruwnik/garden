@@ -1,4 +1,7 @@
 (ns garden.tools.pan
+  "Pan tool for navigating the canvas.
+
+   Click and drag to move the viewport around the garden."
   (:require [garden.tools.protocol :as proto]
             [garden.state :as state]))
 

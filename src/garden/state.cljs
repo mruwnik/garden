@@ -1,5 +1,15 @@
 (ns garden.state
+  "Centralized application state management.
+
+   This namespace provides:
+   - The initial state structure
+   - Accessors for reading state
+   - Mutation functions for updating state
+   - History management for undo/redo"
   (:require [reagent.core :as r]))
+
+;; =============================================================================
+;; Initial State
 
 (def initial-state
   {:garden {:name ""
@@ -95,36 +105,46 @@
                ;; SI units configuration
                :rain-rate-mm-hr 10.0      ; mm/hour - typical light rain is 2.5, moderate 7.5, heavy 50+
                :evaporation-mm-hr 5.0     ; mm/hour - typical is 2-6 mm/day, but faster for sim
-               :infiltration-mm-hr 0.0}})
+               :infiltration-mm-hr 0.0}
+
+   ;; Graphics settings
+   :graphics {:resolution-cm 50           ; Resolution for 3D rendering and simulation (cm per cell)
+              :terrain-detail :medium     ; :low, :medium, :high - affects max segments
+              :water-detail :medium}})
 
 (defonce app-state (r/atom initial-state))
 
-;; State accessors
+;; =============================================================================
+;; Generic State Accessors
 
 (defn get-state
   "Get the current app state or a path within it."
   ([] @app-state)
   ([& path] (get-in @app-state (vec path))))
 
-;; Viewport helpers
+;; =============================================================================
+;; Viewport Accessors
 
 (defn viewport [] (:viewport @app-state))
 (defn zoom [] (get-in @app-state [:viewport :zoom]))
 (defn offset [] (get-in @app-state [:viewport :offset]))
 (defn canvas-ctx [] (get-in @app-state [:viewport :ctx]))
 
-;; Tool helpers
+;; =============================================================================
+;; Tool Accessors
 
 (defn active-tool [] (get-in @app-state [:tool :active]))
 (defn tool-state [] (get-in @app-state [:tool :state]))
 
-;; Selection helpers
+;; =============================================================================
+;; Selection Accessors
 
 (defn selection [] (:selection @app-state))
 (defn selected-ids [] (get-in @app-state [:selection :ids]))
 (defn selected? [id] (contains? (selected-ids) id))
 
-;; Domain data helpers
+;; =============================================================================
+;; Domain Data Accessors (Areas & Plants)
 
 (defn areas [] (:areas @app-state))
 (defn plants [] (:plants @app-state))
@@ -147,7 +167,8 @@
                        (<= (+ (* dx dx) (* dy dy)) (* radius radius))))
                    (plants)))))
 
-;; State mutations
+;; =============================================================================
+;; Generic State Mutations
 
 (defn set-state! [path value]
   (swap! app-state assoc-in path value))
@@ -175,7 +196,8 @@
 (defn set-cursor! [cursor]
   (set-state! [:tool :cursor] cursor))
 
-;; Selection mutations
+;; =============================================================================
+;; Selection Mutations
 
 (defn select! [type ids]
   (swap! app-state assoc :selection {:type type :ids (set ids)}))
@@ -192,7 +214,8 @@
           (select! type new-ids)))
       (select! type (conj current-ids id)))))
 
-;; History/Undo helpers
+;; =============================================================================
+;; History (Undo/Redo)
 
 (def max-history-size 50)
 
@@ -244,7 +267,8 @@
                   (assoc-in [:history :future] (pop future-states))
                   (update-in [:history :past] conj current))))))
 
-;; Area mutations
+;; =============================================================================
+;; Area Mutations
 
 (defn gen-id []
   (str (random-uuid)))
@@ -266,7 +290,8 @@
   (swap! app-state update :areas
          (fn [areas] (filterv #(not= (:id %) id) areas))))
 
-;; Plant mutations
+;; =============================================================================
+;; Plant Mutations
 
 (defn add-plant! [plant]
   (save-history!)
@@ -293,7 +318,8 @@
   (swap! app-state update :plants
          (fn [plants] (filterv #(not= (:id %) id) plants))))
 
-;; Viewport mutations
+;; =============================================================================
+;; Viewport Mutations
 
 (defn pan! [dx dy]
   (update-state! [:viewport :offset]
@@ -319,7 +345,8 @@
                           (assoc-in [:viewport :zoom] new-zoom)
                           (assoc-in [:viewport :offset] [new-ox new-oy])))))
 
-;; Reference image helpers
+;; =============================================================================
+;; Reference Image
 
 (defn load-reference-image!
   "Load a reference image from a File object."
@@ -382,7 +409,8 @@
 (defn toggle-reference-visible! []
   (update-state! [:ui :reference-image :visible?] not))
 
-;; Topo helpers
+;; =============================================================================
+;; Topographical Data
 
 (defn topo-data [] (:topo @app-state))
 (defn topo-points [] (:topo-points @app-state))
@@ -436,7 +464,8 @@
 (defn set-contour-interval! [interval]
   (set-state! [:topo :contours :interval] (max 0.5 interval)))
 
-;; Manual elevation points
+;; =============================================================================
+;; Manual Elevation Points
 
 (defn add-topo-point!
   "Add a manual elevation point."
@@ -455,3 +484,16 @@
   (swap! app-state update :topo-points
          (fn [points]
            (mapv #(if (= (:id %) id) (merge % updates) %) points))))
+
+;; =============================================================================
+;; Graphics Settings
+
+(defn graphics-resolution-cm
+  "Get the graphics resolution in cm per cell."
+  []
+  (get-in @app-state [:graphics :resolution-cm]))
+
+(defn set-graphics-resolution-cm!
+  "Set the graphics resolution in cm per cell. Lower = more detail, more compute."
+  [cm]
+  (set-state! [:graphics :resolution-cm] (max 10 (min 500 cm))))

@@ -1,8 +1,17 @@
 (ns garden.canvas.reference
-  "Render a reference image overlay for tracing.")
+  "Reference image overlay for tracing.
+
+   Renders a scaled reference image (e.g., satellite imagery) that users
+   can trace over to create garden areas. Includes an adaptive scale bar.")
+
+;; =============================================================================
+;; Constants
 
 ;; Fixed bar size in image pixels (roughly 2cm when viewing full image)
 (def ^:private bar-image-pixels 150)
+
+;; =============================================================================
+;; Image Rendering
 
 (defn render!
   "Render the reference image overlay if visible and loaded.
@@ -27,6 +36,9 @@
         (set! (.-globalAlpha ctx) (or opacity 0.5))
         (.drawImage ctx image x y w h)
         (.restore ctx)))))
+
+;; =============================================================================
+;; Scale Bar
 
 (def ^:private nice-distances
   "Nice round distances for scale bar (in meters)"

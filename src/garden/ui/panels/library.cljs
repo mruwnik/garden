@@ -1,6 +1,16 @@
 (ns garden.ui.panels.library
+  "Left sidebar panel with drawing tools and plant library.
+
+   Provides:
+   - Drawing tool buttons (area, trace, fill, contour-trace, elevation-point)
+   - Plant placement tools (single, row, scatter)
+   - Tool-specific options panels
+   - Searchable plant catalog with drag-and-drop support"
   (:require [garden.state :as state]
             [garden.tools.protocol :as tools]))
+
+;; =============================================================================
+;; Plant Catalog Data
 
 ;; Sample plant library data
 ;; spacing-cm is the recommended spacing between plants (diameter of mature footprint)
@@ -133,6 +143,9 @@
     :color "#e34234"
     :spacing-cm 150}])
 
+;; =============================================================================
+;; Plant Card Component
+
 (defn plant-card
   "A single plant in the library."
   [plant]
@@ -159,6 +172,9 @@
      [:div.plant-info
       [:div.plant-name (:common-name plant)]
       [:div.plant-type (name (:type plant))]]]))
+
+;; =============================================================================
+;; Drawing Tools Section
 
 (def drawing-tools
   "Tools for drawing/placing items, shown in left panel."
@@ -195,7 +211,9 @@
       :on-click #(tools/activate-tool! :scatter)}
      "Scatter"]))
 
-;; Area types for tool options
+;; =============================================================================
+;; Area Types
+
 (def area-types
   {:bed       {:label "Garden Bed" :color "#8B6914"}
    :path      {:label "Path" :color "#d4a574"}
@@ -219,6 +237,9 @@
     (for [[type-key {:keys [label]}] (sort-by (comp :label val) area-types)]
       ^{:key type-key}
       [:option {:value (name type-key)} label])]])
+
+;; =============================================================================
+;; Tool Options Panels
 
 (defn- trace-tool-options
   "Options panel for the trace tool."
@@ -399,6 +420,9 @@
     :contour-trace [contour-trace-tool-options]
     :elevation-point [elevation-point-tool-options]
     nil))
+
+;; =============================================================================
+;; Public Components
 
 (defn drawing-tools-section
   "Section with drawing/placement tools."

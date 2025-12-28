@@ -1,8 +1,15 @@
 (ns garden.tools.protocol
+  "Tool system infrastructure.
+
+   Provides the ITool protocol that all tools implement, along with:
+   - Tool registry for storing tool implementations
+   - Event dispatching to the active tool
+   - Tool switching with proper activate/deactivate lifecycle"
   (:require [garden.state :as state]
             [garden.canvas.viewport :as viewport]))
 
-;; Tool protocol - each tool implements these methods
+;; =============================================================================
+;; Tool Protocol
 
 (defprotocol ITool
   "Protocol for interactive canvas tools."
@@ -19,7 +26,8 @@
   (on-mouse-up [this point event] "Handle mouse up.")
   (on-key-down [this event] "Handle key down."))
 
-;; Tool registry
+;; =============================================================================
+;; Tool Registry
 
 (defonce tools (atom {}))
 
@@ -43,7 +51,8 @@
   []
   (vals @tools))
 
-;; Event dispatch
+;; =============================================================================
+;; Event Dispatch
 
 (defn dispatch-mouse-down!
   "Dispatch mouse down event to active tool."
@@ -72,7 +81,8 @@
   (when-let [tool (active-tool)]
     (on-key-down tool event)))
 
-;; Tool switching
+;; =============================================================================
+;; Tool Switching
 
 (defn activate-tool!
   "Switch to a different tool."

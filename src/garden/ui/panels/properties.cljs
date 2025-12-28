@@ -1,6 +1,16 @@
 (ns garden.ui.panels.properties
+  "Right sidebar panel for editing selected items.
+
+   Features:
+   - Area editing: name, type, color, notes
+   - Plant editing: species, position, life stage, source
+   - Topography display: elevation, slope, aspect (when topo data available)
+   - Multi-selection support with batch delete"
   (:require [garden.state :as state]
             [garden.topo.slope :as slope]))
+
+;; =============================================================================
+;; Area Types
 
 (def area-types
   "Available area types with their default colors and labels."
@@ -14,6 +24,9 @@
    :mulch     {:label "Mulch" :color "#5D4037"}
    :patio     {:label "Patio/Deck" :color "#8D6E63"}
    :sand      {:label "Sand" :color "#E8D5B7"}})
+
+;; =============================================================================
+;; Form Components
 
 (defn- color-input
   "A color picker input."
@@ -42,6 +55,9 @@
     {:value (or value "")
      :placeholder "Add notes..."
      :on-change #(on-change (-> % .-target .-value))}]])
+
+;; =============================================================================
+;; Property Editors
 
 (defn area-properties
   "Properties editor for a selected area."
@@ -170,6 +186,9 @@
   [:div.no-selection
    [:p "Select an item to edit its properties"]
    [:p.hint "Click on an area or plant to select it"]])
+
+;; =============================================================================
+;; Main Panel
 
 (defn properties-panel
   "The properties panel content."

@@ -1,7 +1,20 @@
 (ns garden.topo.slope
-  "Slope and aspect calculations from elevation data."
+  "Slope and aspect calculations from elevation data.
+
+   Provides:
+   - Slope calculation (terrain steepness in degrees)
+   - Aspect calculation (compass direction a slope faces)
+   - Slope categorization (flat, gentle, moderate, steep, etc.)
+   - Polygon-based terrain analysis for areas
+
+   Formulas:
+   - Slope = arctan(sqrt(dzdx² + dzdy²))
+   - Aspect = atan2(dzdy, -dzdx) + 180°"
   (:require [garden.topo.core :as topo]
             [garden.state :as state]))
+
+;; =============================================================================
+;; Point-Based Calculations
 
 (defn calculate-slope
   "Calculate slope angle in degrees at garden coordinates [x y].
@@ -28,6 +41,9 @@
             aspect-deg (+ (* aspect-rad (/ 180 js/Math.PI)) 180)]
         (mod aspect-deg 360)))))
 
+;; =============================================================================
+;; Label Conversion
+
 (defn aspect-to-label
   "Convert aspect degrees to compass direction label."
   [aspect-deg]
@@ -48,6 +64,9 @@
           adjusted (mod (+ aspect-deg 22.5) 360)
           idx (int (/ adjusted 45))]
       (nth directions (mod idx 8)))))
+
+;; =============================================================================
+;; Slope Categories
 
 (defn slope-category
   "Categorize slope angle into descriptive category."
@@ -73,6 +92,9 @@
     :extreme    "Extreme (>30°)"
     "Unknown"))
 
+;; =============================================================================
+;; Combined Calculations
+
 (defn calculate-slope-aspect
   "Calculate both slope and aspect at [x y].
    Returns {:slope degrees :aspect degrees :aspect-label \"N\"/\"NE\"/etc}
@@ -86,7 +108,8 @@
        :aspect-label (aspect-to-label aspect)
        :slope-category (slope-category slope)})))
 
-;; Polygon analysis functions
+;; =============================================================================
+;; Polygon Analysis
 
 (defn- point-in-polygon?
   "Check if point [px py] is inside polygon defined by points.

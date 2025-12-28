@@ -1,4 +1,7 @@
 (ns garden.core
+  "Application entry point.
+
+   Initializes the garden planning application and handles hot reload."
   (:require [garden.ui.app :as app]
             [garden.topo.geotiff :as geotiff]))
 

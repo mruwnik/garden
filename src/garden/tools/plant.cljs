@@ -1,4 +1,10 @@
 (ns garden.tools.plant
+  "Plant placement tool.
+
+   Supports two modes:
+   - Single: Click to place individual plants
+   - Row: Click and drag to create a row of evenly spaced plants
+   Press 'r' to toggle between modes."
   (:require [garden.tools.protocol :as proto]
             [garden.state :as state]))
 

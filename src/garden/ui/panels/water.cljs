@@ -10,6 +10,7 @@
   (let [rain-rate (or (state/get-state :water-sim :rain-rate-mm-hr) 10.0)
         evap-rate (or (state/get-state :water-sim :evaporation-mm-hr) 5.0)
         infil-rate (or (state/get-state :water-sim :infiltration-mm-hr) 0.0)
+        resolution-cm (or (state/graphics-resolution-cm) 50)
         running? (water-sim/running?)
         raining? (water-sim/raining?)]
     [:div.settings-overlay
@@ -18,6 +19,33 @@
       {:on-click #(.stopPropagation %)
        :style {:width "400px"}}
       [:h3 "Water Simulation Settings"]
+
+      ;; Resolution setting
+      [:div.form-field
+       {:style {:background "#fff3e0"
+                :padding "12px"
+                :border-radius "4px"
+                :margin-bottom "16px"}}
+       [:label "Simulation Resolution"]
+       [:div {:style {:font-size "12px" :color "#666" :margin-bottom "8px"}}
+        "Grid cell size for terrain and water rendering. Lower = more detail but slower."]
+       [:div {:style {:display "flex" :gap "8px" :align-items "center"}}
+        [:input.text-input
+         {:type "number"
+          :min "10"
+          :max "500"
+          :step "10"
+          :value (int resolution-cm)
+          :style {:width "80px"}
+          :on-change #(let [v (js/parseFloat (.. % -target -value))]
+                        (when (>= v 10)
+                          (state/set-graphics-resolution-cm! v)))}]
+        [:span "cm/cell"]
+        [:button.btn-secondary {:on-click #(state/set-graphics-resolution-cm! 100)} "Low"]
+        [:button.btn-secondary {:on-click #(state/set-graphics-resolution-cm! 50)} "Medium"]
+        [:button.btn-secondary {:on-click #(state/set-graphics-resolution-cm! 25)} "High"]]
+       [:div {:style {:font-size "11px" :color "#888" :margin-top "4px"}}
+        "Note: Changes apply when restarting simulation or switching to 3D view"]]
 
       ;; Status and control buttons
       [:div.form-field

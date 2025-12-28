@@ -1,13 +1,25 @@
 (ns garden.ui.panels.chat
+  "AI assistant chat panel with Claude integration.
+
+   Features:
+   - Natural language garden planning assistance
+   - Image attachment support (drag & drop or file picker)
+   - Streaming responses with tool execution feedback
+   - Configurable API key via settings modal"
   (:require [reagent.core :as r]
             [garden.state :as state]
             [garden.llm :as llm]))
 
-;; Local state for pending images and settings modal
+;; =============================================================================
+;; Local State
+
 (defonce local-state
   (r/atom {:pending-images []
            :show-settings? false
            :api-key-input ""}))
+
+;; =============================================================================
+;; Image Handling
 
 (defn- read-file-as-base64
   "Read a file and return base64 data via callback."
@@ -64,6 +76,9 @@
        [:img.message-image
         {:src (str "data:" (:media-type img) ";base64," (:data img))}])]))
 
+;; =============================================================================
+;; Message Components
+
 (defn- message-bubble
   "Render a single chat message."
   [{:keys [role content images]}]
@@ -71,6 +86,9 @@
    (when (seq images)
      [message-images images])
    [:div.message-content content]])
+
+;; =============================================================================
+;; Settings Modal
 
 (defn- settings-modal
   "Modal for API key settings."
@@ -98,6 +116,9 @@
                        (llm/set-api-key! api-key-input)
                        (swap! local-state assoc :show-settings? false))}
           "Save"]]]])))
+
+;; =============================================================================
+;; Chat Input
 
 (defn- chat-input
   "Chat input field with send button and image attachment."
@@ -149,6 +170,9 @@
                       (when can-send?
                         (do-send!))))}
        (if loading? "Cancel" "Send")]]]))
+
+;; =============================================================================
+;; Public Components
 
 (defn- chat-messages
   "Scrollable chat messages container."

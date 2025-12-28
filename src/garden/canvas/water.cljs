@@ -1,16 +1,26 @@
 (ns garden.canvas.water
-  "Render water overlay from simulation."
+  "Render water overlay from simulation.
+
+   Renders the water grid as a blue overlay with transparency
+   proportional to water depth (logarithmic scale for visibility)."
   (:require [garden.state :as state]
             [garden.simulation.water :as water-sim]))
 
-;; Water color (blue with transparency based on depth)
+;; =============================================================================
+;; Constants
+
 (def ^:private water-color [30 100 200])
 
-;; Cached water overlay
+;; =============================================================================
+;; Cache
+
 (defonce ^:private water-cache
   (atom {:canvas nil
          :bounds nil
          :frame-count 0}))
+
+;; =============================================================================
+;; Cache Rendering
 
 (defn- render-water-cache!
   "Render water to an offscreen canvas."
@@ -60,6 +70,9 @@
                :bounds {:left min-x :top min-y :right max-x :bottom max-y}
                :frame-count (inc (:frame-count @water-cache)))
         canvas))))
+
+;; =============================================================================
+;; Public API
 
 (defn render-water!
   "Render water overlay to the main canvas."

@@ -1,5 +1,12 @@
 (ns garden.tools.trace
-  "Trace tool - freehand draw to create area outlines."
+  "Freehand tracing tool for creating areas.
+
+   Click and drag to draw, release to create an area. Points are
+   automatically simplified to reduce polygon complexity.
+
+   Keyboard shortcuts:
+   - 0-9: Select area type (1=water, 2=bed, 3=path, etc.)
+   - w/b/p/l/h: Quick type selection"
   (:require [garden.tools.protocol :as p]
             [garden.state :as state]))
 

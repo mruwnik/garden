@@ -1,3 +1,12 @@
+;; Garden Planning App - Shadow-CLJS Build Configuration
+;;
+;; Builds:
+;;   :dev          - Development build with hot reload
+;;   :water-worker - Web Worker for water simulation
+;;   :min          - Production build with advanced optimization
+;;   :test         - Node.js unit tests
+;;   :browser-test - Browser-based tests for DOM code
+
 {:source-paths ["src" "dev" "test"]
 
  :lein true  ;; Use project.clj for dependencies
@@ -7,7 +16,8 @@
  :nrepl {:port 7888}
 
  :builds
- {:dev
+ {;; Development build with hot reload and devtools
+  :dev
   {:target :browser
    :output-dir "resources/public/js/compiled"
    :asset-path "js/compiled"
@@ -16,6 +26,16 @@
    :devtools {:after-load garden.core/on-js-reload
               :preloads [devtools.preload]}}
 
+  ;; Web Worker for offloading water simulation computation
+  :water-worker
+  {:target :browser
+   :output-dir "resources/public/js/compiled"
+   :asset-path "js/compiled"
+   :modules {:water-worker {:init-fn garden.simulation.water-worker/init
+                            :entries [garden.simulation.water-worker]
+                            :web-worker true}}}
+
+  ;; Production build with advanced Closure optimization
   :min
   {:target :browser
    :output-dir "resources/public/js/compiled"
@@ -24,13 +44,13 @@
                       :entries [garden.core]}}
    :compiler-options {:optimizations :advanced}}
 
-  ;; Fast unit tests (Node.js)
+  ;; Fast unit tests running on Node.js
   :test
   {:target :node-script
    :output-to "target/test/node-tests.js"
    :main garden.test-runner/run}
 
-  ;; Browser tests for canvas/DOM code
+  ;; Browser tests for canvas and DOM-dependent code
   :browser-test
   {:target :browser-test
    :test-dir "resources/public/js/test"

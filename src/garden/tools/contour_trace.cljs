@@ -1,5 +1,13 @@
 (ns garden.tools.contour-trace
-  "Contour trace tool - trace along elevation contour lines to create area boundaries."
+  "Contour tracing tool for topography-aware area creation.
+
+   Click on a contour line to start tracing along that elevation.
+   The tool automatically snaps to the contour as you draw.
+   Areas include the contour elevation in their properties.
+
+   Keyboard shortcuts:
+   - 1-8: Select area type
+   - Escape: Cancel current trace"
   (:require [garden.tools.protocol :as p]
             [garden.state :as state]
             [garden.topo.core :as topo]))

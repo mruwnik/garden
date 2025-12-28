@@ -1,13 +1,23 @@
 (ns garden.topo.core
   "Core topographical data handling: elevation grid, interpolation, lookups.
-   Optimized for typed arrays (Float32Array) stored as 1D row-major data."
+
+   Provides:
+   - Grid cell access for typed Float32Array elevation data
+   - Coordinate conversion between garden space (cm) and grid space
+   - Bilinear and nearest-neighbor interpolation
+   - Elevation gradient calculation for slope/aspect
+   - Manual point interpolation using inverse distance weighting
+   - Geographic coordinate conversion (PL-1992/EPSG:2180 to WGS84)
+
+   Elevation Grid Data Structure:
+   - elevation-data: Float32Array, 1D row-major (index = row * width + col)
+   - width/height: Grid dimensions
+   - bounds: {:min-x :min-y :max-x :max-y} in garden coords (cm)
+   - resolution: Size of each grid cell in cm"
   (:require [garden.state :as state]))
 
-;; Elevation Grid Data Structure
-;; - elevation-data: Float32Array, 1D row-major (index = row * width + col)
-;; - width/height: Grid dimensions
-;; - bounds: {:min-x :min-y :max-x :max-y} in garden coords (cm)
-;; - resolution: Size of each grid cell in cm
+;; =============================================================================
+;; Grid Cell Access
 
 (defn get-cell
   "Get elevation at grid cell [row col] from typed array.
@@ -19,6 +29,9 @@
     (let [idx (+ col (* row width))
           v (aget elevation-data idx)]
       (when-not (js/isNaN v) v))))
+
+;; =============================================================================
+;; Coordinate Conversion
 
 (defn garden->grid
   "Convert garden coordinates (cm) to grid coordinates.
@@ -39,6 +52,9 @@
           x (+ min-x (* col resolution))
           y (+ min-y (* row resolution))]
       [x y])))
+
+;; =============================================================================
+;; Interpolation
 
 (defn bilinear-interpolate
   "Interpolate elevation at fractional grid position [row col].
@@ -74,6 +90,9 @@
         c (int (Math/round col))]
     (get-cell elevation-data width height r c)))
 
+;; =============================================================================
+;; Public Elevation API
+
 (defn get-elevation-at
   "Get interpolated elevation at garden coordinates [x y] in cm.
    Returns elevation in meters, or nil if no data."
@@ -108,7 +127,8 @@
     (when (and width height)
       [height width])))
 
-;; Elevation range helpers
+;; =============================================================================
+;; Elevation Range Helpers
 
 (defn elevation-range
   "Get [min max] elevation from stored metadata."
@@ -126,7 +146,8 @@
         (/ (- elevation min-e) range)
         0.5))))
 
-;; Gradient calculations (for slope/aspect)
+;; =============================================================================
+;; Gradient Calculations (for slope/aspect)
 
 (defn elevation-gradient-at
   "Calculate elevation gradient (dz/dx, dz/dy) at garden coordinates.
@@ -147,7 +168,8 @@
             {:dzdx (/ (- e-right e-left) (* 2 res-m))
              :dzdy (/ (- e-down e-up) (* 2 res-m))}))))))
 
-;; Manual point interpolation
+;; =============================================================================
+;; Manual Point Interpolation (IDW)
 
 (defn interpolate-from-points
   "Generate elevation at [x y] by interpolating from manual topo-points.
@@ -181,6 +203,9 @@
   (or (get-elevation-at [x y])
       (interpolate-from-points [x y])))
 
+;; =============================================================================
+;; Geographic Coordinate Conversion
+;;
 ;; PL-1992 (EPSG:2180) to WGS84 conversion
 ;; Transverse Mercator projection parameters for PL-1992:
 ;; - Ellipsoid: GRS 1980

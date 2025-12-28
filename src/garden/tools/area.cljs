@@ -1,4 +1,8 @@
 (ns garden.tools.area
+  "Area drawing tool for creating garden regions.
+
+   Click to add vertices, close near the first point or press Enter
+   to complete the polygon. Supports grid snapping."
   (:require [garden.tools.protocol :as proto]
             [garden.state :as state]
             [garden.util.geometry :as geom]))
@@ -12,10 +16,12 @@
       (geom/snap-to-grid point spacing)
       point)))
 
-(def ^:private close-threshold 15) ; Pixels to close polygon
+(def close-threshold 15) ; Pixels to close polygon
 
-(defn- close-to-first?
-  "Check if point is close enough to the first point to close the polygon."
+(defn close-to-first?
+  "Check if point is close enough to the first point to close the polygon.
+   Returns true if points has >= 3 vertices and point is within close-threshold
+   of the first point."
   [points point]
   (when (>= (count points) 3)
     (let [first-point (first points)

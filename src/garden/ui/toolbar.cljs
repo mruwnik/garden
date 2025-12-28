@@ -1,8 +1,21 @@
 (ns garden.ui.toolbar
+  "Main toolbar component.
+
+   Provides quick access to:
+   - Navigation tools (Select, Pan)
+   - Undo/Redo controls
+   - Zoom controls
+   - Display toggles (grid, background, spacing)
+   - Ground data and 3D view
+   - Water simulation controls
+   - Panel toggles"
   (:require [garden.state :as state]
             [garden.tools.protocol :as tools]
             [garden.canvas.core :as canvas]
             [garden.simulation.water :as water-sim]))
+
+;; =============================================================================
+;; Tool Buttons
 
 (defn tool-button
   "A single tool button."
@@ -15,6 +28,9 @@
         :title label
         :on-click #(tools/activate-tool! tool-id)}
        label])))
+
+;; =============================================================================
+;; Main Toolbar
 
 (defn toolbar
   "The main toolbar component."

@@ -1,12 +1,34 @@
 (ns garden.tools.elevation-point
-  "Elevation point tool - place manual elevation points for interpolation."
+  "Manual elevation point placement tool.
+
+   Click to place elevation points that provide reference data for terrain
+   interpolation when no GeoTIFF is available. Points can be dragged to
+   reposition and deleted with Backspace/Delete.
+
+   Workflow:
+   1. Click on empty space to start placing a point
+   2. Type elevation value (in meters)
+   3. Press Enter to confirm
+   4. Click existing points to select/drag them
+
+   Keyboard shortcuts:
+   - 0-9, ., -: Enter elevation value
+   - Enter: Confirm elevation and place point
+   - Delete/Backspace: Remove selected point
+   - Escape: Cancel current placement"
   (:require [garden.tools.protocol :as p]
             [garden.state :as state]
             [garden.util.geometry :as geom]))
 
+;; =============================================================================
+;; Constants
+
 (def ^:private point-hit-radius
   "Click radius for hitting existing points (in canvas units)."
   15)
+
+;; =============================================================================
+;; Hit Detection
 
 (defn- find-topo-point-at
   "Find a topo point near the given canvas position."
@@ -17,6 +39,9 @@
     (first (filter (fn [tp]
                      (< (geom/points-distance (:position tp) point) hit-radius))
                    points))))
+
+;; =============================================================================
+;; Tool Implementation
 
 (defrecord ElevationPointTool []
   p/ITool

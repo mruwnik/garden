@@ -1,7 +1,19 @@
 (ns garden.topo.geotiff
-  "GeoTIFF parsing for elevation data - optimized for large files."
+  "GeoTIFF parsing for elevation data.
+
+   Features:
+   - Automatic downsampling for large files (> 2048 pixels)
+   - Resolution extraction from GeoTIFF metadata
+   - Geographic bounding box extraction
+   - Multi-band support (elevation + RGB imagery)
+   - File and URL loading with async processing
+
+   Supports DEM (Digital Elevation Model) files in GeoTIFF format."
   (:require [garden.state :as state]
             ["geotiff" :as geotiff]))
+
+;; =============================================================================
+;; Constants
 
 ;; Maximum grid dimension to keep in memory (will downsample larger files)
 ;; Increased to 2048 to preserve more detail for zoomed-in viewing
@@ -9,6 +21,9 @@
 
 ;; Default meters per pixel when GeoTIFF doesn't contain resolution metadata
 (def ^:private default-m-per-pixel 0.5)
+
+;; =============================================================================
+;; Metadata Extraction
 
 (defn- extract-resolution
   "Extract meters-per-pixel from GeoTIFF image metadata.
@@ -38,6 +53,9 @@
     (catch :default _
       nil)))
 
+;; =============================================================================
+;; GeoTIFF Parsing
+
 (defn- array-buffer->tiff
   "Parse ArrayBuffer as GeoTIFF. Returns a promise."
   [array-buffer]
@@ -47,6 +65,9 @@
   "Get the first image from GeoTIFF. Returns a promise."
   [tiff]
   (.getImage tiff 0))
+
+;; =============================================================================
+;; Downsampling
 
 (defn- downsample-typed-array
   "Downsample a typed array from (src-w x src-h) to (dst-w x dst-h).
@@ -125,6 +146,9 @@
                 (aset rgba (+ idx 3) 255)))
             rgba))))))
 
+;; =============================================================================
+;; Raster Processing
+
 (defn- process-rasters
   "Process raster data and create topo-data map.
    band-index: which band to use for elevation (0-indexed, default 0)"
@@ -158,6 +182,9 @@
      :band-count band-count
      :selected-band band-idx
      :source :geotiff}))
+
+;; =============================================================================
+;; Public API
 
 (defn parse-geotiff
   "Parse a GeoTIFF file and extract elevation data.
@@ -337,7 +364,7 @@
                                                       :max-elev (:max-elevation topo-data)
                                                       :band-count (:band-count topo-data)
                                                       :selected-band (:selected-band topo-data)
-                                                      :resolution-m scale-m-per-pixel})))))))))))))
-   (.catch (fn [err]
-             (state/set-state! [:ui :loading?] false)
-             (js/console.error "Failed to load GeoTIFF from URL:" err)))))
+                                                      :resolution-m scale-m-per-pixel}))))))))))))
+       (.catch (fn [err]
+                 (state/set-state! [:ui :loading?] false)
+                 (js/console.error "Failed to load GeoTIFF from URL:" err))))))

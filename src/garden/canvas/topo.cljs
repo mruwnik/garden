@@ -1,8 +1,20 @@
 (ns garden.canvas.topo
-  "Render topographical data overlays: elevation colors, contour lines.
-   Optimized with cached ImageData rendering."
+  "Render topographical data overlays.
+
+   Renders:
+   - Elevation color overlay (cached ImageData)
+   - Contour lines (marching squares algorithm)
+   - Elevation legend
+
+   Supports three color scale modes:
+   - :data     - Use full data range (default)
+   - :absolute - Fixed global range (-300m to 8000m)
+   - :visible  - Dynamic range based on visible viewport"
   (:require [garden.topo.core :as topo]
             [garden.state :as state]))
+
+;; =============================================================================
+;; Cache State
 
 ;; Full-extent cache for :data and :absolute modes (rendered once)
 (defonce ^:private full-cache
@@ -30,7 +42,9 @@
 (def ^:private absolute-min-elevation -300)
 (def ^:private absolute-max-elevation 8000)
 
-;; Color ramps for elevation visualization
+;; =============================================================================
+;; Color Ramps
+
 (def ^:private elevation-colors
   "Default elevation color ramp: green (low) -> brown -> white (high)"
   [[0.0  [34 139 34]]    ; Forest green (low)
@@ -71,6 +85,9 @@
   "Convert RGB array to CSS rgba string."
   [[r g b] alpha]
   (str "rgba(" r "," g "," b "," alpha ")"))
+
+;; =============================================================================
+;; Elevation Range Calculation
 
 (defn- get-visible-elevation-range
   "Calculate min/max elevation for the currently visible viewport area."
@@ -131,6 +148,9 @@
                    [(:min-elevation topo-state) (:max-elevation topo-state)])
       ;; :data is default
       [(:min-elevation topo-state) (:max-elevation topo-state)])))
+
+;; =============================================================================
+;; Cache Rendering
 
 (defn- sample-rgb
   "Sample RGB from the rgb-data array at grid position (nearest neighbor)."
@@ -352,6 +372,9 @@
                 screen-width screen-height)
     (.restore ctx)))
 
+;; =============================================================================
+;; Overlay Rendering
+
 (defn render-elevation-overlay!
   "Render elevation as colored overlay.
    For :data/:absolute modes: uses full-extent cache (rendered once).
@@ -381,6 +404,9 @@
                 {:keys [canvas bounds]} cache]
             (when (and canvas bounds)
               (draw-cache-to-screen! ctx canvas bounds viewport-state opacity))))))))
+
+;; =============================================================================
+;; Contour Lines
 
 (defn render-contours!
   "Render contour lines at regular intervals using marching squares.
@@ -452,6 +478,9 @@
           (.stroke ctx))
         (.restore ctx)))))
 
+;; =============================================================================
+;; Legend
+
 (defn render-elevation-legend!
   "Render an elevation legend in fixed screen position."
   [ctx state]
@@ -493,6 +522,9 @@
         (set! (.-textAlign ctx) "center")
         (.fillText ctx mode-label (+ legend-x (/ legend-w 2)) (+ legend-y legend-h 8))
         (.restore ctx)))))
+
+;; =============================================================================
+;; Public API
 
 (defn invalidate-cache!
   "Clear all cached bitmaps (call when topo data changes)."

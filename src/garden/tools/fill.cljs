@@ -1,13 +1,28 @@
 (ns garden.tools.fill
-  "Fill tool - click to flood fill from reference image and create area."
+  "Magic wand fill tool for automatic area detection.
+
+   Click on a region in the reference image to automatically detect
+   its boundaries using flood fill. Supports hole detection for
+   areas with enclosed unfilled regions (e.g., islands in ponds).
+
+   Uses Moore-Neighbor tracing and Ramer-Douglas-Peucker simplification.
+
+   Keyboard shortcuts:
+   - 0-9: Select area type (1=water, 2=bed, 3=path, etc.)
+   - +/-: Adjust color tolerance"
   (:require [garden.tools.protocol :as p]
             [garden.state :as state]))
 
-;; Color tolerance for flood fill (0-255 range)
+;; =============================================================================
+;; Constants
+
 (def ^:private default-tolerance 32)
 
 ;; Area types that respect existing areas by default
 (def ^:private respects-existing-default #{:water :path})
+
+;; =============================================================================
+;; Coordinate Conversion
 
 (defn- canvas->image-coords
   "Convert canvas coordinates to reference image pixel coordinates.
@@ -45,6 +60,9 @@
     [(/ (- cx top-left-x) scale)
      (/ (- cy top-left-y) scale)]))
 
+;; =============================================================================
+;; Exclusion Mask
+
 (defn- create-exclusion-mask
   "Pre-render existing areas to a canvas for fast O(1) exclusion checks.
    Returns a Uint8Array where non-zero means the pixel is in an existing area."
@@ -69,6 +87,9 @@
     ;; Get pixel data - just check alpha or red channel
     (let [image-data (.getImageData ctx 0 0 w h)]
       (.-data image-data))))
+
+;; =============================================================================
+;; Flood Fill
 
 (defn- flood-fill-mask
   "Perform flood fill and return a js/Set of filled pixel keys.
@@ -117,6 +138,9 @@
                       (.push stack x (inc y))
                       (recur (inc cnt)))
                     (recur cnt)))))))))))
+
+;; =============================================================================
+;; Contour Tracing
 
 (defn- find-start-pixel
   "Find the topmost-leftmost boundary pixel by scanning filled pixels."
@@ -224,7 +248,8 @@
           ;; All points within tolerance
           [start end])))))
 
-;; ============ Hole Detection ============
+;; =============================================================================
+;; Hole Detection
 
 (defn- collect-hole-candidates
   "Find all unfilled pixels that are adjacent to filled pixels.
@@ -482,6 +507,9 @@
              (+ top-left-y (* iy scale))])
           img-points)))
 
+;; =============================================================================
+;; Fill Execution
+
 (defn- do-fill-work!
   "Perform the actual fill work. Called via setTimeout to allow UI updates."
   [canvas-point area-type ref-img]
@@ -558,6 +586,9 @@
       (js/setTimeout
        #(do-fill-work! canvas-point area-type ref-img)
        10))))
+
+;; =============================================================================
+;; Tool Implementation
 
 (defrecord FillTool []
   p/ITool

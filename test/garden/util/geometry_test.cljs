@@ -114,6 +114,34 @@
     (testing "point outside L-shape (in the notch)"
       (is (not (geo/point-in-polygon? l-shape [7 2]))))))
 
+(deftest point-in-polygon-with-holes-test
+  (let [outer [[0 0] [100 0] [100 100] [0 100]]
+        hole [[25 25] [75 25] [75 75] [25 75]]]
+    (testing "point inside outer but outside hole"
+      (is (true? (geo/point-in-polygon-with-holes? outer [hole] [10 10])))
+      (is (true? (geo/point-in-polygon-with-holes? outer [hole] [90 90]))))
+
+    (testing "point inside hole returns false"
+      (is (false? (geo/point-in-polygon-with-holes? outer [hole] [50 50])))
+      (is (false? (geo/point-in-polygon-with-holes? outer [hole] [30 30]))))
+
+    (testing "point outside outer returns false"
+      (is (false? (geo/point-in-polygon-with-holes? outer [hole] [150 50])))
+      (is (false? (geo/point-in-polygon-with-holes? outer [hole] [-10 -10])))))
+
+  (testing "multiple holes"
+    (let [outer [[0 0] [200 0] [200 100] [0 100]]
+          hole1 [[10 10] [50 10] [50 50] [10 50]]
+          hole2 [[60 10] [100 10] [100 50] [60 50]]]
+      (is (true? (geo/point-in-polygon-with-holes? outer [hole1 hole2] [150 25])))
+      (is (false? (geo/point-in-polygon-with-holes? outer [hole1 hole2] [30 30])))
+      (is (false? (geo/point-in-polygon-with-holes? outer [hole1 hole2] [80 30])))))
+
+  (testing "no holes"
+    (let [square [[0 0] [10 0] [10 10] [0 10]]]
+      (is (true? (geo/point-in-polygon-with-holes? square [] [5 5])))
+      (is (false? (geo/point-in-polygon-with-holes? square [] [15 5]))))))
+
 (deftest polygon-centroid-test
   (testing "centroid of square"
     (let [square [[0 0] [10 0] [10 10] [0 10]]]
