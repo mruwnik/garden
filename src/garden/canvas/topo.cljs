@@ -4,7 +4,14 @@
   (:require [garden.topo.core :as topo]
             [garden.state :as state]))
 
-;; Viewport-aware cache for high-quality rendering
+;; Full-extent cache for :data and :absolute modes (rendered once)
+(defonce ^:private full-cache
+  (atom {:canvas nil           ; OffscreenCanvas covering entire topo bounds
+         :bounds nil           ; {:left :top :right :bottom} in canvas coords
+         :color-mode nil       ; :data or :absolute
+         :data-hash nil}))     ; Hash of elevation data
+
+;; Viewport-aware cache for :visible mode only (debounced updates)
 (defonce ^:private viewport-cache
   (atom {:canvas nil           ; OffscreenCanvas with rendered elevation
          :bounds nil           ; {:left :top :right :bottom} in canvas coords
@@ -12,9 +19,12 @@
          :data-hash nil        ; Hash of elevation data
          :pending? false}))    ; Whether a render is pending
 
-;; Debounce timer for re-rendering
+;; Debounce timer for :visible mode re-rendering
 (defonce ^:private render-timer (atom nil))
 (def ^:private render-debounce-ms 3000)  ; Wait 3s after last pan/zoom
+
+;; Max pixels for full-extent cache (to avoid memory issues)
+(def ^:private max-full-cache-pixels 4194304)  ; 2048x2048
 
 ;; Absolute elevation range for :absolute color scale mode
 (def ^:private absolute-min-elevation -300)
@@ -178,8 +188,53 @@
     (.putImageData off-ctx image-data 0 0)
     offscreen))
 
-(defn- schedule-cache-update!
-  "Schedule a high-quality cache update after debounce period."
+(defn- render-full-cache!
+  "Render the full-extent cache for :data or :absolute modes.
+   Called once when data loads or mode changes."
+  [topo-state mode]
+  (let [{:keys [elevation-data bounds min-elevation max-elevation]} topo-state
+        grid-width (:width topo-state)
+        grid-height (:height topo-state)
+        {:keys [min-x min-y max-x max-y]} bounds
+        ;; Calculate render dimensions - aim for 1:1 with grid, capped
+        topo-width (- max-x min-x)
+        topo-height (- max-y min-y)
+        aspect (/ topo-width topo-height)
+        ;; Scale to fit within max pixels while preserving aspect
+        max-dim (int (Math/sqrt max-full-cache-pixels))
+        [render-width render-height]
+        (if (> aspect 1)
+          [(min max-dim grid-width) (min (int (/ max-dim aspect)) grid-height)]
+          [(min (int (* max-dim aspect)) grid-width) (min max-dim grid-height)])
+        ;; Get color range based on mode
+        [color-min color-max] (case mode
+                                :absolute [absolute-min-elevation absolute-max-elevation]
+                                [min-elevation max-elevation])
+        cache-bounds {:left min-x :top min-y :right max-x :bottom max-y}
+        ;; Calculate target resolution (pixels per canvas unit)
+        target-resolution (/ render-width topo-width)]
+    (js/console.log "Rendering full topo cache:" render-width "x" render-height "for mode:" (name mode))
+    (let [canvas (render-to-cache! topo-state cache-bounds color-min color-max target-resolution)]
+      (reset! full-cache
+              {:canvas canvas
+               :bounds cache-bounds
+               :color-mode mode
+               :data-hash (hash elevation-data)})
+      ;; Force a re-render
+      (state/set-state! [:ui :_cache-updated] (js/Date.now)))))
+
+(defn- ensure-full-cache!
+  "Ensure full-extent cache is valid for current data and mode."
+  [topo-state mode]
+  (let [cache @full-cache
+        current-hash (hash (:elevation-data topo-state))]
+    (when (or (nil? (:canvas cache))
+              (not= (:data-hash cache) current-hash)
+              (not= (:color-mode cache) mode))
+      (render-full-cache! topo-state mode))))
+
+(defn- schedule-viewport-cache-update!
+  "Schedule a viewport-aware cache update for :visible mode after debounce."
   [topo-state viewport-state]
   ;; Cancel any pending timer
   (when-let [timer @render-timer]
@@ -211,7 +266,7 @@
                    ;; Calculate optimal resolution (pixels per canvas unit)
                    ;; Aim for ~1 pixel per screen pixel at current zoom
                    target-resolution zoom
-                   ;; Get color range
+                   ;; Get color range for visible area
                    [color-min color-max] (get-color-scale-range topo-state viewport-state)
                    ;; Render to cache
                    canvas (render-to-cache! topo-state cache-bounds color-min color-max target-resolution)]
@@ -223,12 +278,11 @@
                         :data-hash (hash (:elevation-data topo-state))
                         :pending? false})
                ;; Force a re-render
-               (when-let [ctx (state/canvas-ctx)]
-                 (state/set-state! [:ui :_cache-updated] (js/Date.now)))))
+               (state/set-state! [:ui :_cache-updated] (js/Date.now))))
            render-debounce-ms)))
 
-(defn- cache-valid?
-  "Check if the current cache is valid for the given viewport."
+(defn- viewport-cache-valid?
+  "Check if the viewport cache is valid for :visible mode."
   [topo-state viewport-state]
   (let [cache @viewport-cache
         {:keys [canvas bounds color-range data-hash]} cache]
@@ -251,41 +305,57 @@
              (<= vis-right right)
              (<= vis-bottom bottom)
              (= data-hash (hash (:elevation-data topo-state)))
-             ;; For :visible mode, color range changes with viewport
+             ;; Color range changes with viewport in :visible mode
              (= cached-min current-min)
              (= cached-max current-max))))))
 
+(defn- draw-cache-to-screen!
+  "Draw a cache canvas to the screen context."
+  [ctx cache-canvas cache-bounds viewport-state opacity]
+  (let [{:keys [left top right bottom]} cache-bounds
+        {:keys [offset zoom]} viewport-state
+        [ox oy] offset
+        ;; Convert cache bounds to screen coordinates
+        screen-left (+ ox (* left zoom))
+        screen-top (+ oy (* top zoom))
+        screen-width (* (- right left) zoom)
+        screen-height (* (- bottom top) zoom)]
+    (.save ctx)
+    (set! (.-globalAlpha ctx) opacity)
+    (.drawImage ctx cache-canvas
+                screen-left screen-top
+                screen-width screen-height)
+    (.restore ctx)))
+
 (defn render-elevation-overlay!
   "Render elevation as colored overlay.
-   Uses cached rendering with debounced updates for smooth pan/zoom."
+   For :data/:absolute modes: uses full-extent cache (rendered once).
+   For :visible mode: uses viewport cache with debounced updates."
   [ctx state]
   (let [topo-state (:topo state)
         viewport-state (:viewport state)
         {:keys [visible? elevation-data]} topo-state
-        opacity (or (:opacity topo-state) 0.3)]
+        opacity (or (:opacity topo-state) 0.3)
+        mode (or (:color-scale-mode topo-state) :data)]
     (when (and visible? elevation-data)
-      (let [cache @viewport-cache
-            {:keys [canvas bounds]} cache
-            cache-ok? (cache-valid? topo-state viewport-state)]
-        ;; Schedule cache update if needed
-        (when (not cache-ok?)
-          (schedule-cache-update! topo-state viewport-state))
-        ;; Draw from cache if available (even if outdated - better than nothing)
-        (when (and canvas bounds)
-          (let [{:keys [left top right bottom]} bounds
-                {:keys [offset zoom]} viewport-state
-                [ox oy] offset
-                ;; Convert cache bounds to screen coordinates
-                screen-left (+ ox (* left zoom))
-                screen-top (+ oy (* top zoom))
-                screen-width (* (- right left) zoom)
-                screen-height (* (- bottom top) zoom)]
-            (.save ctx)
-            (set! (.-globalAlpha ctx) opacity)
-            (.drawImage ctx canvas
-                        screen-left screen-top
-                        screen-width screen-height)
-            (.restore ctx)))))))
+      (if (= mode :visible)
+        ;; :visible mode - use viewport cache with debounced updates
+        (let [cache @viewport-cache
+              {:keys [canvas bounds]} cache
+              cache-ok? (viewport-cache-valid? topo-state viewport-state)]
+          ;; Schedule cache update if needed
+          (when (not cache-ok?)
+            (schedule-viewport-cache-update! topo-state viewport-state))
+          ;; Draw from cache if available (even if outdated - better than nothing)
+          (when (and canvas bounds)
+            (draw-cache-to-screen! ctx canvas bounds viewport-state opacity)))
+        ;; :data or :absolute mode - use full-extent cache (no debounce)
+        (do
+          (ensure-full-cache! topo-state mode)
+          (let [cache @full-cache
+                {:keys [canvas bounds]} cache]
+            (when (and canvas bounds)
+              (draw-cache-to-screen! ctx canvas bounds viewport-state opacity))))))))
 
 (defn render-contours!
   "Render contour lines at regular intervals using marching squares.
@@ -400,10 +470,15 @@
         (.restore ctx)))))
 
 (defn invalidate-cache!
-  "Clear the cached bitmap (call when topo data changes)."
+  "Clear all cached bitmaps (call when topo data changes)."
   []
   (when-let [timer @render-timer]
     (js/clearTimeout timer))
+  (reset! full-cache
+          {:canvas nil
+           :bounds nil
+           :color-mode nil
+           :data-hash nil})
   (reset! viewport-cache
           {:canvas nil
            :bounds nil
