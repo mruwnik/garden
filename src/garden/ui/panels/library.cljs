@@ -162,7 +162,7 @@
 
 (def drawing-tools
   "Tools for drawing/placing items, shown in left panel."
-  [:area :trace :fill])
+  [:area :trace :fill :contour-trace :elevation-point])
 
 (defn- drawing-tool-button
   "A button for a drawing tool."
@@ -311,6 +311,66 @@
      [:div.form-info
       [:span "Keys 1-9, 0 = 10-90, 100 plants"]]]))
 
+(defn- contour-trace-tool-options
+  "Options panel for the contour trace tool."
+  []
+  (let [tool-state (state/tool-state)
+        area-type (or (:area-type tool-state) :bed)
+        hover-elevation (:hover-elevation tool-state)
+        target-elevation (:target-elevation tool-state)
+        drawing? (:drawing? tool-state)]
+    [:div.tool-options
+     [:h4 "Contour Trace"]
+     [:p.hint "Trace along elevation contour lines"]
+     [area-type-selector area-type
+      #(state/update-tool-state! assoc :area-type %)]
+     (when (or hover-elevation target-elevation)
+       [:div.form-field
+        [:label "Contour Elevation"]
+        [:span.form-value
+         (if drawing?
+           (str "Tracing at " (.toFixed (or target-elevation 0) 1) "m")
+           (str "Hover: " (.toFixed (or hover-elevation 0) 1) "m"))]])
+     [:div.form-info
+      [:span "Keyboard: 1-8 for area types"]]
+     [:div.form-info
+      [:span "Requires loaded topo data"]]]))
+
+(defn- elevation-point-tool-options
+  "Options panel for the elevation point tool."
+  []
+  (let [tool-state (state/tool-state)
+        pending-position (:pending-position tool-state)
+        elevation-input (:elevation-input tool-state)
+        selected-point-id (:selected-point-id tool-state)
+        topo-points (state/topo-points)
+        point-count (count topo-points)]
+    [:div.tool-options
+     [:h4 "Elevation Point"]
+     [:p.hint "Place points with known elevations"]
+     (cond
+       pending-position
+       [:div.form-field
+        [:label "Enter Elevation"]
+        [:span.form-value
+         (if (seq elevation-input)
+           (str elevation-input " m")
+           "Type value, press Enter")]]
+
+       selected-point-id
+       [:div.form-field
+        [:label "Selected Point"]
+        [:span.form-value "Delete or drag to move"]]
+
+       :else
+       [:div.form-field
+        [:label "Points Placed"]
+        [:span.form-value (str point-count " point" (when (not= point-count 1) "s"))]])
+     [:div.form-info
+      [:span "Click to place, type elevation, Enter to confirm"]]
+     [:div.form-info
+      [:span "Delete/Backspace removes selected point"]]]))
+
 (defn- plant-tool-options
   "Options panel for the plant tool."
   []
@@ -336,6 +396,8 @@
     :area [area-tool-options]
     :scatter [scatter-tool-options]
     :plant [plant-tool-options]
+    :contour-trace [contour-trace-tool-options]
+    :elevation-point [elevation-point-tool-options]
     nil))
 
 (defn drawing-tools-section

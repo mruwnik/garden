@@ -122,8 +122,8 @@
   (testing "set-zoom! clamps to valid range"
     (state/set-zoom! 0.5)
     (is (= 0.5 (state/zoom)))
-    (state/set-zoom! 0.001)
-    (is (= 0.01 (state/zoom)))
+    (state/set-zoom! 0.0001)
+    (is (= 0.001 (state/zoom)))  ; min zoom is 0.001 (0.1%)
     (state/set-zoom! 100)
     (is (= 10.0 (state/zoom))))
 

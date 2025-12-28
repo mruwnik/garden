@@ -382,8 +382,8 @@
 (defn- execute-set-zoom [{:keys [zoom_percent center_x center_y]}]
   (let [;; Convert percentage to zoom factor (100% = 1.0)
         zoom-factor (/ zoom_percent 100.0)
-        ;; Clamp to valid range (1% to 1000%)
-        clamped-zoom (max 0.01 (min 10.0 zoom-factor))
+        ;; Clamp to valid range (0.1% to 1000%)
+        clamped-zoom (max 0.001 (min 10.0 zoom-factor))
         {:keys [size]} (state/viewport)
         {:keys [width height]} size]
     ;; Set the zoom

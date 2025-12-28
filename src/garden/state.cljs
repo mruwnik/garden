@@ -47,6 +47,8 @@
                           :opacity 0.5
                           :bar-meters 50}  ; what the scale bar represents
         :reference-modal-open? false
+        :topo-modal-open? false
+        :ground-modal-open? false
         :mode :plan
         :hover {:position nil :plant-id nil}
         :mouse {:canvas-pos nil}
@@ -57,7 +59,28 @@
    :chat {:open? false
           :messages []  ; [{:role :user/:assistant :content "..."}]
           :input ""
-          :loading? false}})
+          :loading? false}
+
+   ;; Topographical data
+   :topo {:elevation-data nil      ; 2D array of elevation values (meters)
+          :source nil              ; :geotiff or :manual
+          :bounds nil              ; {:min-x :min-y :max-x :max-y} in garden coords (cm)
+          :resolution nil          ; Grid cell size in cm
+          :min-elevation nil       ; Minimum elevation in meters
+          :max-elevation nil       ; Maximum elevation in meters
+          :visible? false          ; Show topo overlay
+          :band-count nil          ; Number of bands in GeoTIFF
+          :selected-band 0         ; Which band to use for elevation (0-indexed)
+          :color-scale-mode :data  ; :data (file min/max), :absolute (-300 to 8000m), :visible (viewport min/max)
+          :contours {:visible? false
+                     :interval 5   ; Contour interval in meters
+                     :color "#8B4513"}
+          :georef {:position [0 0]  ; Center position in garden coords
+                   :scale 0.25       ; cm per data cell
+                   :rotation 0}}    ; degrees
+
+   ;; Manual elevation points (alternative to GeoTIFF)
+   :topo-points []})
 
 (defonce app-state (r/atom initial-state))
 
@@ -262,7 +285,7 @@
                  (fn [[x y]] [(+ x dx) (+ y dy)])))
 
 (defn set-zoom! [new-zoom]
-  (set-state! [:viewport :zoom] (max 0.01 (min 10.0 new-zoom))))
+  (set-state! [:viewport :zoom] (max 0.001 (min 10.0 new-zoom))))
 
 (defn zoom-at!
   "Zoom centered on screen point."
@@ -272,8 +295,8 @@
         ;; Convert screen point to canvas coordinates before zoom
         cx (/ (- sx ox) zoom)
         cy (/ (- sy oy) zoom)
-        ;; Calculate new zoom (min 0.01 = 1%, max 10 = 1000%)
-        new-zoom (max 0.01 (min 10.0 (* zoom factor)))
+        ;; Calculate new zoom (min 0.001 = 0.1%, max 10 = 1000%)
+        new-zoom (max 0.001 (min 10.0 (* zoom factor)))
         ;; Adjust offset to keep canvas point stationary
         new-ox (- sx (* cx new-zoom))
         new-oy (- sy (* cy new-zoom))]
@@ -343,3 +366,76 @@
 
 (defn toggle-reference-visible! []
   (update-state! [:ui :reference-image :visible?] not))
+
+;; Topo helpers
+
+(defn topo-data [] (:topo @app-state))
+(defn topo-points [] (:topo-points @app-state))
+(defn topo-elevation-data [] (get-in @app-state [:topo :elevation-data]))
+(defn topo-bounds [] (get-in @app-state [:topo :bounds]))
+(defn topo-resolution [] (get-in @app-state [:topo :resolution]))
+(defn topo-visible? [] (get-in @app-state [:topo :visible?]))
+
+(defn set-topo-data!
+  "Set the full topo data from a parsed source (GeoTIFF, etc.)"
+  [{:keys [elevation-data bounds resolution min-elevation max-elevation source georef width height geo-info band-count selected-band]}]
+  (swap! app-state update :topo merge
+         {:elevation-data elevation-data
+          :bounds bounds
+          :resolution resolution
+          :min-elevation min-elevation
+          :max-elevation max-elevation
+          :source source
+          :width width
+          :height height
+          :geo-info geo-info
+          :band-count band-count
+          :selected-band selected-band
+          :georef (or georef {:position [0 0] :scale 1.0 :rotation 0})}))
+
+(defn clear-topo-data! []
+  (swap! app-state assoc :topo
+         {:elevation-data nil
+          :source nil
+          :source-file nil
+          :bounds nil
+          :resolution nil
+          :min-elevation nil
+          :max-elevation nil
+          :visible? false
+          :band-count nil
+          :selected-band 0
+          :contours {:visible? false :interval 1 :color "#8B4513"}
+          :georef {:position [0 0] :scale 1.0 :rotation 0}}))
+
+(defn toggle-topo-visible! []
+  (update-state! [:topo :visible?] not))
+
+(defn set-topo-opacity! [opacity]
+  (set-state! [:topo :opacity] (max 0.1 (min 1.0 opacity))))
+
+(defn toggle-contours-visible! []
+  (update-state! [:topo :contours :visible?] not))
+
+(defn set-contour-interval! [interval]
+  (set-state! [:topo :contours :interval] (max 0.5 interval)))
+
+;; Manual elevation points
+
+(defn add-topo-point!
+  "Add a manual elevation point."
+  [{:keys [position elevation]}]
+  (let [point {:id (gen-id)
+               :position position
+               :elevation elevation}]
+    (update-state! [:topo-points] conj point)
+    (:id point)))
+
+(defn remove-topo-point! [id]
+  (swap! app-state update :topo-points
+         (fn [points] (filterv #(not= (:id %) id) points))))
+
+(defn update-topo-point! [id updates]
+  (swap! app-state update :topo-points
+         (fn [points]
+           (mapv #(if (= (:id %) id) (merge % updates) %) points))))

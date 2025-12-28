@@ -1,5 +1,6 @@
 (ns garden.ui.panels.properties
-  (:require [garden.state :as state]))
+  (:require [garden.state :as state]
+            [garden.topo.slope :as slope]))
 
 (def area-types
   "Available area types with their default colors and labels."
@@ -72,6 +73,39 @@
 
        [textarea-input "Notes" (:notes area)
         #(state/update-area! area-id {:notes %})]
+
+       ;; Topography section (only shown if topo data available)
+       (when (state/topo-elevation-data)
+         (let [topo-analysis (slope/analyze-area-topography (:points area))]
+           (when topo-analysis
+             [:div.topo-section
+              {:style {:margin-top "12px" :padding-top "12px" :border-top "1px solid #ddd"}}
+              [:label {:style {:font-weight "bold" :display "block" :margin-bottom "8px"}}
+               "Topography"]
+              ;; Elevation
+              (when-let [{:keys [min max avg]} (:elevation topo-analysis)]
+                [:div.form-field
+                 [:label "Elevation"]
+                 [:span.form-value
+                  (str (.toFixed min 1) " - " (.toFixed max 1) "m")
+                  [:span {:style {:color "#666" :font-size "11px" :margin-left "8px"}}
+                   (str "(avg: " (.toFixed avg 1) "m)")]]])
+              ;; Slope
+              (when-let [{:keys [min max avg category]} (:slope topo-analysis)]
+                [:div.form-field
+                 [:label "Slope"]
+                 [:span.form-value
+                  (str (.toFixed avg 1) "°")
+                  [:span {:style {:color "#666" :font-size "11px" :margin-left "8px"}}
+                   (str "(" (slope/slope-category-label category) ")")]]])
+              ;; Aspect
+              (when-let [{:keys [dominant label full-label]} (:aspect topo-analysis)]
+                [:div.form-field
+                 [:label "Aspect"]
+                 [:span.form-value
+                  label
+                  [:span {:style {:color "#666" :font-size "11px" :margin-left "8px"}}
+                   (str "(" full-label "-facing)")]]])])))
 
        [:div.form-info
         [:span (str (count (:points area)) " points")]]]

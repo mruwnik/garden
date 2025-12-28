@@ -3,7 +3,8 @@
             [garden.canvas.viewport :as viewport]
             [garden.canvas.grid :as grid]
             [garden.canvas.render :as render]
-            [garden.canvas.reference :as reference]))
+            [garden.canvas.reference :as reference]
+            [garden.canvas.topo :as topo]))
 
 ;; Dirty tracking for efficient rendering
 (defonce ^:private last-render-state (atom nil))
@@ -12,7 +13,7 @@
 (defn- render-keys
   "Extract the state keys that affect rendering."
   [state]
-  (select-keys state [:areas :plants :viewport :tool :selection :ui]))
+  (select-keys state [:areas :plants :viewport :tool :selection :ui :topo :topo-points]))
 
 (defn- needs-render?
   "Check if state has changed since last render."
@@ -54,6 +55,9 @@
       ;; Render reference image overlay (behind areas/plants)
       (reference/render! ctx state)
 
+      ;; Render topographical data overlay
+      (topo/render! ctx state)
+
       ;; Render grid
       (when (get-in state [:ui :grid :visible?])
         (grid/render! ctx state))
@@ -76,6 +80,9 @@
 
       ;; Render reference image scale bar (in screen coords)
       (reference/render-scale-bar! ctx state)
+
+      ;; Render topo elevation legend (in screen coords)
+      (topo/render-elevation-legend! ctx state)
 
       ;; Update last render state
       (reset! last-render-state (render-keys state))

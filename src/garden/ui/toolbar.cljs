@@ -92,14 +92,18 @@
 
    [:div.toolbar-separator]
 
-   ;; Reference image button - opens modal
+   ;; Ground data button - unified imagery + topo modal
    (let [has-ref? (some? (state/get-state :ui :reference-image :image))
-         visible? (state/get-state :ui :reference-image :visible?)]
+         has-topo? (some? (state/topo-elevation-data))
+         ref-visible? (state/get-state :ui :reference-image :visible?)
+         topo-visible? (state/get-state :topo :visible?)
+         has-data? (or has-ref? has-topo?)
+         any-visible? (or ref-visible? topo-visible?)]
      [:button.tool-btn
-      {:title "Reference image settings"
-       :class (when (and has-ref? visible?) "active")
-       :on-click #(state/set-state! [:ui :reference-modal-open?] true)}
-      "Ref Image"])
+      {:title "Ground data (imagery + topography)"
+       :class (when (and has-data? any-visible?) "active")
+       :on-click #(state/set-state! [:ui :ground-modal-open?] true)}
+      "Ground"])
 
    [:div.toolbar-separator]
 

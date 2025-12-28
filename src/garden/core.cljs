@@ -1,6 +1,6 @@
 (ns garden.core
   (:require [garden.ui.app :as app]
-            [garden.state :as state]))
+            [garden.topo.geotiff :as geotiff]))
 
 (enable-console-print!)
 
@@ -8,8 +8,8 @@
   "Initialize the application."
   []
   (app/mount-app)
-  ;; Load default reference image
-  (state/load-reference-image-url! "/kenroku-en.png"))
+  ;; Load default topo data (resolution auto-detected from file, defaults to 0.5m)
+  (geotiff/load-geotiff-url! "/topo.tif"))
 
 (defn on-js-reload
   "Called on figwheel hot reload."

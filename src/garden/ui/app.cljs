@@ -1,15 +1,19 @@
 (ns garden.ui.app
   (:require [reagent.core :as r]
+            [reagent.dom :as rdom]
             [garden.state :as state]
             [garden.canvas.core :as canvas]
             [garden.canvas.viewport :as viewport]
             [garden.canvas.render :as render]
+            [garden.topo.core :as topo]
             [garden.tools.protocol :as tools]
             [garden.ui.toolbar :as toolbar]
             [garden.ui.panels.library :as library]
             [garden.ui.panels.properties :as properties]
             [garden.ui.panels.chat :as chat]
             [garden.ui.panels.reference :as reference]
+            [garden.ui.panels.topo :as topo-panel]
+            [garden.ui.panels.ground :as ground]
             ;; Load tools to register them
             [garden.tools.pan]
             [garden.tools.select]
@@ -17,7 +21,9 @@
             [garden.tools.plant]
             [garden.tools.scatter]
             [garden.tools.trace]
-            [garden.tools.fill]))
+            [garden.tools.fill]
+            [garden.tools.contour-trace]
+            [garden.tools.elevation-point]))
 
 (defn- get-canvas-point
   "Get the point relative to the canvas from a mouse event."
@@ -151,13 +157,36 @@
   []
   (let [canvas-pos (state/get-state :ui :mouse :canvas-pos)
         zoom (state/zoom)
-        active-tool (state/active-tool)]
+        active-tool (state/active-tool)
+        has-topo? (some? (state/topo-elevation-data))
+        has-geo? (topo/has-geo-info?)
+        elevation (when (and canvas-pos has-topo?)
+                    (topo/get-elevation-with-fallback canvas-pos))
+        geo-coords (when (and canvas-pos has-geo?)
+                     (topo/garden->latlon canvas-pos))]
     [:div.status-bar
      [:span.status-item
       (if canvas-pos
         (let [[x y] canvas-pos]
           (str "X: " (Math/round x) "  Y: " (Math/round y)))
         "X: --  Y: --")]
+     ;; Elevation display (only when topo data loaded)
+     (when has-topo?
+       [:<>
+        [:span.status-separator "|"]
+        [:span.status-item
+         (if elevation
+           (str "Elev: " (.toFixed elevation 1) "m")
+           "Elev: --")]])
+     ;; Lat/Lon coordinates (when available from GeoTIFF)
+     (when has-geo?
+       [:<>
+        [:span.status-separator "|"]
+        [:span.status-item
+         (if geo-coords
+           (let [[lat lon] geo-coords]
+             (str (.toFixed lat 5) "°N, " (.toFixed lon 5) "°E"))
+           "-- °N, -- °E")]])
      [:span.status-separator "|"]
      [:span.status-item (str "Zoom: " (Math/round (* zoom 100)) "%")]
      [:span.status-separator "|"]
@@ -177,7 +206,10 @@
   "Root application component."
   []
   (let [chat-open? (state/get-state :chat :open?)
-        ref-modal-open? (state/get-state :ui :reference-modal-open?)]
+        ground-modal-open? (state/get-state :ui :ground-modal-open?)
+        ;; Keep legacy modals for backwards compatibility
+        ref-modal-open? (state/get-state :ui :reference-modal-open?)
+        topo-modal-open? (state/get-state :ui :topo-modal-open?)]
     [:div.app
      [toolbar/toolbar]
      [:div.main-content
@@ -191,13 +223,18 @@
         [chat/chat-panel])
       ;; Chat toggle button (always visible)
       [chat/chat-toggle-button]
-      ;; Reference image modal
+      ;; Ground data modal (unified)
+      (when ground-modal-open?
+        [ground/ground-modal])
+      ;; Legacy modals (kept for backwards compatibility)
       (when ref-modal-open?
         [reference/reference-modal])
+      (when topo-modal-open?
+        [topo-panel/topo-modal])
       ;; Loading overlay
       [loading-overlay]]]))
 
 (defn mount-app
   "Mount the app to the DOM."
   []
-  (r/render [app] (.getElementById js/document "app")))
+  (rdom/render [app] (.getElementById js/document "app")))
